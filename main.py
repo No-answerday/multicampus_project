@@ -1,34 +1,66 @@
-# main.py
 import json
+import time
+import random
+import undetected_chromedriver as uc
+from get_product_urls import get_product_urls
 from get_product_reviews import get_product_reviews
 
 
 def main():
-    # 수집할 상품 URL (예: 사과)
-    target_url = (
-        "https://www.coupang.com/vp/products/5611991510?vendorItemId=92083385400"
-    )
+    KEYWORD = "사과"
+    PRODUCT_LIMIT = 3
+    REVIEW_TARGET = 30
 
-    # 목표 리뷰 개수 설정
-    TARGET_COUNT = 130
+    # 1. 브라우저 설정 및 실행 (여기서 한 번만!)
+    print(">>> 브라우저를 실행합니다...")
+    options = uc.ChromeOptions()
+    options.add_argument("--no-first-run")
+    options.add_argument("--no-service-autorun")
+    options.add_argument("--password-store=basic")
+    options.add_argument("--window-size=1920,1080")
+    options.add_argument("--blink-settings=imagesEnabled=false")
+    driver = uc.Chrome(options=options, use_subprocess=False)
 
-    # 크롤링 실행 (모듈에서 함수 호출)
-    print(">>> 크롤러 실행을 시작합니다...")
-    final_data = get_product_reviews(target_url, target_review_count=TARGET_COUNT)
+    try:
+        # 2. URL 수집 (driver 전달)
+        print(f">>> [{KEYWORD}] 검색 시작...")
+        urls = get_product_urls(driver, KEYWORD, max_products=PRODUCT_LIMIT)
+        print(f">>> 수집된 URL: {len(urls)}개")
 
-    if final_data["product_info"]:
-        print(f"\n수집 성공! (총 리뷰: {final_data['reviews']['count']}개)")
+        all_results = []
 
-        # 파일 저장
-        file_name = "coupang_result.json"
-        with open(file_name, "w", encoding="utf-8") as f:
-            json.dump(final_data, f, indent=2, ensure_ascii=False)
+        # 3. 리뷰 수집 (driver 전달)
+        for idx, url in enumerate(urls):
+            print(f"\n[{idx+1}/{len(urls)}] 상품 크롤링 중...")
 
-        print(f"결과 파일 저장 완료: {file_name}")
-    else:
-        print("수집 실패")
+            try:
+                # 같은 브라우저 창을 계속 사용
+                data = get_product_reviews(
+                    driver, url, target_review_count=REVIEW_TARGET
+                )
+
+                if data["product_info"]:
+                    all_results.append(data)
+                    print(f"  -> 완료: 리뷰 {data['reviews']['count']}개")
+                else:
+                    print("  -> 실패")
+
+                time.sleep(random.uniform(3, 5))
+
+            except Exception as e:
+                print(f"  -> 에러: {e}")
+
+        # 저장
+        if all_results:
+            filename = f"result_{KEYWORD}.json"
+            with open(filename, "w", encoding="utf-8") as f:
+                json.dump(all_results, f, indent=2, ensure_ascii=False)
+            print(f"\n✅ 저장 완료: {filename}")
+
+    finally:
+        print(">>> 브라우저를 종료합니다.")
+        driver.quit()
 
 
-# Mac multiprocessing safe guard
 if __name__ == "__main__":
     main()
