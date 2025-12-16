@@ -16,8 +16,8 @@ from get_product_reviews import get_product_reviews
 def main():
     start_time = time.time()
     KEYWORDS = ["사과"]
-    PRODUCT_LIMIT = 3
-    REVIEW_TARGET = 10
+    PRODUCT_LIMIT = 2
+    REVIEW_TARGET = 50
 
     print(">>> 전체 작업을 시작합니다...")
 
@@ -54,6 +54,7 @@ def main():
                 print(">>> URL 수집 브라우저 종료 및 메모리 정리 중...")
                 try:
                     driver.quit()
+                    print("driver 종료")
                     try:
                         del driver
                     except:
@@ -68,9 +69,12 @@ def main():
                 continue
 
             # ---------------------------------------------------------
-            # [단계 2] 개별 상품 리뷰 수집 (메인에서 재시도 로직 구현)
+            # [단계 2] 개별 상품 리뷰 수집 (리뷰 수에 따라 드라이버 재사용/재시작)
             # ---------------------------------------------------------
-            print(f">>> [{keyword}] 상세 리뷰 수집 시작 (실패 시 브라우저 재실행)")
+            print(f">>> [{keyword}] 상세 리뷰 수집 시작")
+
+            # 첫 상품을 위한 드라이버 생성
+            driver = None
 
             for idx, url in enumerate(urls):
                 print(f"\n   [{idx+1}/{len(urls)}] 상품 처리 시작... ({keyword})")
@@ -83,19 +87,18 @@ def main():
                         f"     -> [시도 {attempt+1}/{MAX_RETRIES}] 브라우저 실행 중..."
                     )
 
-                    driver = None
                     try:
-                        # 1. 매 시도마다 옵션과 드라이버를 새로 생성
-                        options = uc.ChromeOptions()
-                        options.add_argument("--no-first-run")
-                        options.add_argument("--no-service-autorun")
-                        options.add_argument("--password-store=basic")
-                        options.add_argument("--window-size=1920,1080")
-                        options.add_argument("--blink-settings=imagesEnabled=false")
+                        # 드라이버가 없으면 새로 생성
+                        if driver is None:
+                            options = uc.ChromeOptions()
+                            options.add_argument("--no-first-run")
+                            options.add_argument("--no-service-autorun")
+                            options.add_argument("--password-store=basic")
+                            options.add_argument("--window-size=1920,1080")
+                            options.add_argument("--blink-settings=imagesEnabled=false")
+                            driver = uc.Chrome(options=options, use_subprocess=False)
 
-                        driver = uc.Chrome(options=options, use_subprocess=False)
-
-                        # 2. 수집 함수 호출 (에러나면 바로 except로 튀어서 드라이버 재시작)
+                        # 수집 함수 호출
                         data = get_product_reviews(
                             driver, url, idx + 1, target_review_count=REVIEW_TARGET
                         )
@@ -112,31 +115,59 @@ def main():
 
                             crawled_data_list.append(data)
                             print(
-                                f"     -> [성공] 수집 완료 (글 포함: {r_data.get('text_count')}개)"
+                                f"     -> [성공] 수집 완료 (전체: {r_data.get('total_count', 0)}개)"
                             )
-                            success = True
+                            print(
+                                f"     -> [성공] 수집 완료 (글 포함: {r_data.get('text_count', 0)}개)"
+                            )
+                            # 실제 수집한 리뷰 개수 확인
+                            print(
+                                f"     -> 수집한 리뷰 개수: {keyword_total_collected}개"
+                            )
 
-                            # 성공했으니 브라우저 닫고 반복문 탈출
-                            driver.quit()
+                            # 4500개 이상이면 드라이버 재시작, 아니면 유지
+                            if keyword_total_collected >= 4500:
+                                print(
+                                    f"     -> 총 수집 리뷰 {keyword_total_collected}개 ≥ 4500 → 드라이버 재시작"
+                                )
+                                try:
+                                    driver.quit()
+                                    print("driver 종료")
+                                except:
+                                    pass
+                                driver = None
+                            else:
+                                print(
+                                    f"     -> 총 수집 리뷰 {keyword_total_collected}개 < 4500 → 드라이버 유지"
+                                )
+
+                            success = True
                             break
                         else:
                             print("     -> [실패] 데이터가 비어있습니다. 재시도합니다.")
-                            driver.quit()
-                            # continue로 다음 attempt 진행
+                            # 드라이버 재시작
+                            try:
+                                driver.quit()
+                                print("driver 종료")
+                            except:
+                                pass
+                            driver = None
 
                     except Exception as e:
                         print(f"     -> [에러 발생] {e}")
-                        # 에러 발생 시 확실하게 닫기
+                        # 에러 발생 시 드라이버 재시작
                         if driver:
                             try:
                                 driver.quit()
+                                print("driver 종료")
                             except:
                                 pass
+                        driver = None
 
                         # 잠시 대기 후 재시도
                         print("     -> 20초 후 재시도합니다...")
                         time.sleep(20)
-                        continue  # 다음 attempt로
+                        continue
 
                 # 2번 다 실패했을 경우
                 if not success:
@@ -146,9 +177,19 @@ def main():
 
                 # 다음 상품 넘어가기 전 대기
                 gc.collect()
-                sleep_time = random.uniform(15, 16)  # URL 수집 후 충분한 대기
+                sleep_time = random.uniform(15, 16)
                 print(f"     -> 다음 상품 대기 중... ({sleep_time:.1f}초)")
                 time.sleep(sleep_time)
+
+            # 키워드 처리 완료 후 드라이버가 남아있으면 종료
+            if driver:
+                print(f">>> [{keyword}] 모든 상품 처리 완료 - 드라이버 종료")
+                try:
+                    driver.quit()
+                    print("driver 종료")
+                except:
+                    pass
+                driver = None
 
             # ---------------------------------------------------------
             # [단계 3] 키워드 완료 후 저장

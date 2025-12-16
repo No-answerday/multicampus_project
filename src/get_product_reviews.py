@@ -40,7 +40,12 @@ def get_product_reviews(driver, url, rank_num, target_review_count=100):
     product_name = "Unknown"
 
     try:
-        product_name = soup.select_one("span.twc-font-bold").text.strip()
+        product_name_h1 = soup.select_one("h1.product-title.twc-text-lg.twc-text-black")
+        if product_name_h1:
+            product_name_span = product_name_h1.select_one("span.twc-font-bold")
+            if product_name_span:
+                product_name = product_name_span.text.strip()
+
     except:
         try:
             product_name = soup.select_one("h2.prod-buy-header__title").text.strip()
@@ -198,18 +203,18 @@ def get_product_reviews(driver, url, rank_num, target_review_count=100):
             except:
                 continue
 
-        print(
-            f"   -> {current_page_num}페이지 탐색 중... (유효: {collected_count}/{target_review_count}, 전체수집: {len(temp_reviews_list)})"
-        )
+        # print(
+        #     f"   -> {current_page_num}페이지 탐색 중... (유효: {collected_count}/{target_review_count}, 전체수집: {len(temp_reviews_list)})"
+        # )
 
         if collected_count >= target_review_count:
             break
 
         # 2. 페이지 이동 로직
         if current_page_num % 10 == 0:
-            print(
-                f"   -> 페이지 블록 이동 중... ({current_page_num} -> {current_page_num + 1})"
-            )
+            # print(
+            #     f"   -> 페이지 블록 이동 중... ({current_page_num} -> {current_page_num + 1})"
+            # )
             try:
                 next_arrow_btn = WebDriverWait(driver, 5).until(
                     EC.element_to_be_clickable(
