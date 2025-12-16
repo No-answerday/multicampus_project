@@ -137,15 +137,12 @@ def get_product_reviews(driver, url, rank_num, target_review_count=100):
                 break
 
             for article in review_articles:
-                # 목표(내용 있는 리뷰) 개수를 채웠으면 중단
                 if collected_count >= target_review_count:
                     break
 
                 try:
                     content_span = article.select_one("span.twc-bg-white")
                     content = content_span.text.strip() if content_span else ""
-
-                    # [수정] 내용이 없어도 continue 하지 않고 아래 로직 진행하여 저장함
 
                     rating = 0
                     rating_div = article.select_one(
@@ -169,7 +166,6 @@ def get_product_reviews(driver, url, rank_num, target_review_count=100):
                     if img_container and img_container.select_one("img"):
                         has_image = True
 
-                    # ID는 저장된 전체 리스트 길이 + 1로 설정 (빈 내용 리뷰 포함해서 순서 매김)
                     review_obj = {
                         "id": len(temp_reviews_list) + 1,
                         "date": date,
@@ -196,7 +192,6 @@ def get_product_reviews(driver, url, rank_num, target_review_count=100):
                 break
 
             # 2. 페이지 이동 로직
-            # [CASE 1] 10페이지 단위 이동
             if current_page_num % 10 == 0:
                 print(
                     f"   -> 페이지 블록 이동 중... ({current_page_num} -> {current_page_num + 1})"
@@ -215,7 +210,7 @@ def get_product_reviews(driver, url, rank_num, target_review_count=100):
                         next_arrow_btn,
                     )
                     driver.execute_script("arguments[0].click();", next_arrow_btn)
-                    time.sleep(random.uniform(1.5, 2.5))
+                    time.sleep(random.uniform(0.8, 1.0))
 
                     next_page_number = current_page_num + 1
                     next_block_first_btn = WebDriverWait(driver, 5).until(
@@ -227,7 +222,7 @@ def get_product_reviews(driver, url, rank_num, target_review_count=100):
                         )
                     )
                     driver.execute_script("arguments[0].click();", next_block_first_btn)
-                    time.sleep(random.uniform(0.8, 1.2))
+                    time.sleep(random.uniform(0.5, 0.6))
 
                     current_page_num = next_page_number
                     continue
@@ -235,7 +230,6 @@ def get_product_reviews(driver, url, rank_num, target_review_count=100):
                     print("   -> 다음 페이지(화살표 또는 새 블록)가 없습니다.")
                     break
 
-            # [CASE 2] 일반 페이지 번호 이동
             else:
                 next_num = current_page_num + 1
                 try:
@@ -248,14 +242,15 @@ def get_product_reviews(driver, url, rank_num, target_review_count=100):
                         "arguments[0].scrollIntoView({block: 'center'});", next_btn
                     )
                     driver.execute_script("arguments[0].click();", next_btn)
-                    time.sleep(random.uniform(0.5, 0.8))
+                    time.sleep(random.uniform(0.5, 0.6))
                     current_page_num += 1
                 except:
                     print("   -> 다음 페이지 번호가 없습니다.")
                     break
 
         result_data["reviews"] = {
-            "count": len(temp_reviews_list),  # 저장된 전체 개수 (빈 내용 포함)
+            "total_count": len(temp_reviews_list),  # 전체 수집된 개수 (빈 내용 포함)
+            "text_count": collected_count,  # 글이 있는 리뷰 개수
             "data": temp_reviews_list,
         }
 
