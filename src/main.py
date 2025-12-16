@@ -16,7 +16,7 @@ from get_product_reviews import get_product_reviews
 def main():
     start_time = time.time()
     KEYWORDS = ["사과"]
-    PRODUCT_LIMIT = 2
+    PRODUCT_LIMIT = 120
     REVIEW_TARGET = 50
 
     print(">>> 전체 작업을 시작합니다...")
@@ -46,6 +46,9 @@ def main():
             try:
                 urls = get_product_urls(driver, keyword, max_products=PRODUCT_LIMIT)
                 print(f">>> [{keyword}] URL {len(urls)}개 확보 완료")
+                # 중복 urls 제거
+                urls = list(set(urls))
+                print(f">>> [{keyword}] 중복 제거 후 URL {len(urls)}개 확보 완료")
                 time.sleep(2)
             except Exception as e:
                 print(f">>> URL 수집 중 에러: {e}")
