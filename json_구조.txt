@@ -1,7 +1,8 @@
 {
   "search_name": "string",
   "total_collected_reviews": "int", 
-  "total_text_reviews": "int",      
+  "total_text_reviews": "int",
+  "total_product": "int",
   "data": [
     {
       "product_info": {

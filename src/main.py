@@ -201,6 +201,7 @@ def main():
                 "search_name": search_key,
                 "total_collected_reviews": keyword_total_collected,
                 "total_text_reviews": keyword_total_text,
+                "total_product": len(crawled_data_list),
                 "data": crawled_data_list,
             }
 
