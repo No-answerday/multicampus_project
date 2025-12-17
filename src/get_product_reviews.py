@@ -8,6 +8,17 @@ import time
 import random
 
 
+def clean_text(text):
+    """비정상적인 줄 종결자 및 특수 문자 제거"""
+    if not text:
+        return text
+    # LS(U+2028), PS(U+2029) 등 특수 줄바꿈 문자를 일반 공백으로 치환
+    text = text.replace("\u2028", " ").replace("\u2029", " ")
+    # 기타 제어 문자 제거 (탭, 줄바꿈은 유지)
+    text = "".join(char for char in text if char.isprintable() or char in "\n\r\t")
+    return text.strip()
+
+
 def get_product_reviews(driver, url, rank_num, target_review_count=100):
     # 최종 결과를 담을 구조
     result_data = {
@@ -45,13 +56,15 @@ def get_product_reviews(driver, url, rank_num, target_review_count=100):
         if product_name_h1:
             product_name_span = product_name_h1.select_one("span.twc-font-bold")
             if product_name_span:
-                product_name = product_name_span.text.strip()
+                product_name = clean_text(product_name_span.text.strip())
     except:
         pass
 
     if product_name == "Unknown":
         try:
-            product_name = soup.select_one("h2.prod-buy-header__title").text.strip()
+            product_name = clean_text(
+                soup.select_one("h2.prod-buy-header__title").text.strip()
+            )
         except:
             pass
 
@@ -100,7 +113,7 @@ def get_product_reviews(driver, url, rank_num, target_review_count=100):
     try:
         crumb_links = soup.select("ul.breadcrumb li a")
         category_str = " > ".join(
-            [link.text.strip() for link in crumb_links if link.text.strip()]
+            [clean_text(link.text.strip()) for link in crumb_links if link.text.strip()]
         )
     except:
         pass
@@ -235,6 +248,7 @@ def get_product_reviews(driver, url, rank_num, target_review_count=100):
                 try:
                     content_span = article.select_one("span.twc-bg-white")
                     content = content_span.text.strip() if content_span else ""
+                    content = clean_text(content)  # 특수 문자 제거
 
                     rating = 0
                     rating_div = article.select_one(
@@ -245,11 +259,13 @@ def get_product_reviews(driver, url, rank_num, target_review_count=100):
 
                     date_div = article.select_one("div.twc-text-bluegray-700")
                     date = date_div.text.strip() if date_div else ""
+                    date = clean_text(date)  # 특수 문자 제거
 
                     title_div = article.select_one(
                         "div.twc-font-bold.twc-text-bluegray-900"
                     )
                     title = title_div.text.strip() if title_div else ""
+                    title = clean_text(title)  # 특수 문자 제거
 
                     has_image = False
                     img_container = article.select_one(
@@ -258,12 +274,29 @@ def get_product_reviews(driver, url, rank_num, target_review_count=100):
                     if img_container and img_container.select_one("img"):
                         has_image = True
 
+                    # 도움이 된 수 추출
+                    helpful_count = 0
+                    try:
+                        helpful_span = article.select_one(
+                            "span:-soup-contains('명에게 도움이 됐어요')"
+                        )
+                        if helpful_span:
+                            helpful_text = helpful_span.text.strip()
+                            import re
+
+                            match = re.search(r"(\d+)명에게", helpful_text)
+                            if match:
+                                helpful_count = int(match.group(1))
+                    except:
+                        pass
+
                     review_obj = {
                         "id": len(all_reviews_list) + 1,
                         "filter_score": target_score,
                         "real_score": rating,
                         "date": date,
                         "has_image": has_image,
+                        "helpful_count": helpful_count,
                         "title": title,
                         "content": content,
                         "full_text": f"{title} {content}",
@@ -302,7 +335,7 @@ def get_product_reviews(driver, url, rank_num, target_review_count=100):
                         next_arrow_btn,
                     )
                     driver.execute_script("arguments[0].click();", next_arrow_btn)
-                    time.sleep(random.uniform(0.5, 1.0))
+                    time.sleep(random.uniform(0.6, 0.7))
 
                     next_page_number = current_page_num + 1
                     next_block_first_btn = WebDriverWait(driver, 5).until(
@@ -314,7 +347,7 @@ def get_product_reviews(driver, url, rank_num, target_review_count=100):
                         )
                     )
                     driver.execute_script("arguments[0].click();", next_block_first_btn)
-                    time.sleep(random.uniform(1.0, 1.5))
+                    time.sleep(random.uniform(0.4, 0.5))
 
                     current_page_num = next_page_number
                     continue
@@ -335,7 +368,7 @@ def get_product_reviews(driver, url, rank_num, target_review_count=100):
                         "arguments[0].scrollIntoView({block: 'center'});", next_btn
                     )
                     driver.execute_script("arguments[0].click();", next_btn)
-                    time.sleep(random.uniform(1.0, 1.5))
+                    time.sleep(random.uniform(0.4, 0.5))
                     current_page_num += 1
                 except:
                     print(

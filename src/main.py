@@ -15,9 +15,9 @@ from get_product_reviews import get_product_reviews
 
 def main():
     start_time = time.time()
-    KEYWORDS = ["사과"]
-    PRODUCT_LIMIT = 3
-    REVIEW_TARGET = 100
+    KEYWORDS = ["립스틱"]
+    PRODUCT_LIMIT = 1
+    REVIEW_TARGET = 200
 
     print(">>> 전체 작업을 시작합니다...")
 
@@ -62,7 +62,7 @@ def main():
                     except:
                         pass
                     gc.collect()
-                    time.sleep(random.uniform(15, 16))  # URL 수집 후 충분한 대기
+                    time.sleep(20)  # URL 수집 후 충분한 대기
                 except:
                     pass
 
@@ -174,9 +174,8 @@ def main():
 
                 # 다음 상품 넘어가기 전 대기
                 gc.collect()
-                sleep_time = random.uniform(15, 16)
-                print(f"     -> 다음 상품 대기 중... ({sleep_time:.1f}초)")
-                time.sleep(sleep_time)
+                print(f"     -> 다음 상품 대기 중... (20.0초)")
+                time.sleep(20)
 
             # 키워드 처리 완료 후 드라이버가 남아있으면 종료
             if driver:
@@ -206,9 +205,8 @@ def main():
             else:
                 print(f"\n[{keyword}] 수집된 데이터가 없습니다.")
 
-            long_sleep = random.uniform(10, 15)
-            print(f">>> 다음 키워드 준비 중 ({long_sleep:.1f}초)...")
-            time.sleep(long_sleep)
+            print(f">>> 다음 키워드 준비 중 (20.0초)...")
+            time.sleep(20)
 
     except KeyboardInterrupt:
         print("\n>>> 사용자에 의해 작업이 중단되었습니다.")

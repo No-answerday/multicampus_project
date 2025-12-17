@@ -22,6 +22,7 @@
             "date": "string",
             "rating": "int",
             "has_image": "boolean",
+            "helpful_count": "int",
             "title": "string",
             "content": "string",
             "full_text": "string"
