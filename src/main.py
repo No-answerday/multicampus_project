@@ -16,15 +16,14 @@ from get_product_reviews import get_product_reviews
 def main():
     start_time = time.time()
     KEYWORDS = ["사과"]
-    PRODUCT_LIMIT = 120
-    REVIEW_TARGET = 50
+    PRODUCT_LIMIT = 3
+    REVIEW_TARGET = 100
 
     print(">>> 전체 작업을 시작합니다...")
 
     try:
         for k_idx, keyword in enumerate(KEYWORDS):
             crawled_data_list = []
-            top_category = ""
             keyword_total_collected = 0
             keyword_total_text = 0
 
@@ -107,11 +106,6 @@ def main():
                         )
 
                         if data and data.get("product_info"):
-                            # 성공 데이터 처리
-                            current_category = data["product_info"].get("category_path")
-                            if not top_category and current_category:
-                                top_category = current_category
-
                             r_data = data.get("reviews", {})
                             keyword_total_collected += r_data.get("total_count", 0)
                             keyword_total_text += r_data.get("text_count", 0)
@@ -129,9 +123,9 @@ def main():
                             )
 
                             # 4500개 이상이면 드라이버 재시작, 아니면 유지
-                            if keyword_total_collected >= 4500:
+                            if keyword_total_collected >= 1000:
                                 print(
-                                    f"     -> 총 수집 리뷰 {keyword_total_collected}개 ≥ 4500 → 드라이버 재시작"
+                                    f"     -> 총 수집 리뷰 {keyword_total_collected}개 ≥ 1000 → 드라이버 재시작"
                                 )
                                 try:
                                     driver.quit()
@@ -141,7 +135,7 @@ def main():
                                 driver = None
                             else:
                                 print(
-                                    f"     -> 총 수집 리뷰 {keyword_total_collected}개 < 4500 → 드라이버 유지"
+                                    f"     -> 총 수집 리뷰 {keyword_total_collected}개 < 1000 → 드라이버 유지"
                                 )
 
                             success = True
@@ -199,7 +193,6 @@ def main():
             # ---------------------------------------------------------
             result_json = {
                 "search_name": keyword,
-                "category": top_category,
                 "total_collected_reviews": keyword_total_collected,
                 "total_text_reviews": keyword_total_text,
                 "data": crawled_data_list,

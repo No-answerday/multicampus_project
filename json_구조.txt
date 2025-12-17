@@ -1,6 +1,5 @@
 {
   "search_name": "string",
-  "category": "string",
   "total_collected_reviews": "int", 
   "total_text_reviews": "int",      
   "data": [
