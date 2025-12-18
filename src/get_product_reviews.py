@@ -311,6 +311,17 @@ def get_product_reviews(driver, url, rank_num, target_review_count=100):
                     date = date_div.text.strip() if date_div else ""
                     date = clean_text(date)  # 특수 문자 제거
 
+                    # 닉네임 추출
+                    nickname = ""
+                    try:
+                        nickname_span = article.select_one(
+                            "span.twc-text-\\[16px\\]\\/\\[19px\\].twc-font-bold.twc-text-bluegray-900"
+                        )
+                        if nickname_span:
+                            nickname = clean_text(nickname_span.text.strip())
+                    except:
+                        pass
+
                     title_div = article.select_one(
                         "div.twc-font-bold.twc-text-bluegray-900"
                     )
@@ -344,6 +355,7 @@ def get_product_reviews(driver, url, rank_num, target_review_count=100):
                         "id": len(all_reviews_list) + 1,
                         "score": rating,
                         "date": date,
+                        "nickname": nickname,
                         "has_image": has_image,
                         "helpful_count": helpful_count,
                         "title": title,

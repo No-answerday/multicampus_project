@@ -25,8 +25,8 @@ def main():
     TARGETS = {"스킨": "486248", "로션": "486249"}
 
     PRODUCT_LIMIT = 100
-    REVIEW_TARGET = 250
-    MAX_REVIEWS_PER_SEARCH = 10000
+    REVIEW_TARGET = 10
+    MAX_REVIEWS_PER_SEARCH = 10
 
     print(">>> 전체 작업을 시작합니다...")
 
