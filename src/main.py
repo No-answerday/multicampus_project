@@ -14,18 +14,15 @@ from get_product_reviews import get_product_reviews
 
 
 def main():
-    start_time = time.time()
-
     # [방법 1] 키워드 검색을 원할 때
     # MODE = "KEYWORD"
     # TARGETS = ["사과"]
 
     # [방법 2] 카테고리 수집을 원할 때
     MODE = "CATEGORY"
-    TARGETS = {"스킨": "486248", "로션": "486249"}
-
-    PRODUCT_LIMIT = 100
-    REVIEW_TARGET = 250
+    TARGETS = {"스킨": "486248", "바디케어": "486250"}
+    PRODUCT_LIMIT = 2
+    REVIEW_TARGET = 25
     MAX_REVIEWS_PER_SEARCH = 10000
 
     print(">>> 전체 작업을 시작합니다...")
@@ -38,6 +35,9 @@ def main():
             iterable = enumerate(TARGETS.items())  # (0, ("스킨케어", "486248"))
 
         for k_idx, item in iterable:
+            # 이 키워드/카테고리 시작 시간 기록
+            search_start_time = time.time()
+
             # 모드에 따라 변수 할당
             if MODE == "KEYWORD":
                 search_key = item  # "사과"
@@ -48,6 +48,9 @@ def main():
             crawled_data_list = []
             keyword_total_collected = 0
             keyword_total_text = 0
+
+            # 전체 별점 분포 집계
+            total_rating_distribution = {"5": 0, "4": 0, "3": 0, "2": 0, "1": 0}
 
             # ---------------------------------------------------------
             # [단계 1] URL 수집
@@ -140,6 +143,13 @@ def main():
                                 current_collected  # 드라이버 생애주기 카운트 증가
                             )
 
+                            # 상품별 rating_distribution을 전체에 합산
+                            product_rating = data.get("product_info", {}).get(
+                                "rating_distribution", {}
+                            )
+                            for score, count in product_rating.items():
+                                total_rating_distribution[score] += count
+
                             crawled_data_list.append(data)
                             print(
                                 f"     -> [성공] 수집 완료 (전체: {current_collected}개)"
@@ -219,6 +229,7 @@ def main():
                 "total_collected_reviews": keyword_total_collected,
                 "total_text_reviews": keyword_total_text,
                 "total_product": len(crawled_data_list),
+                "total_rating_distribution": total_rating_distribution,
                 "data": crawled_data_list,
             }
 
@@ -230,6 +241,15 @@ def main():
             else:
                 print(f"\n[{search_key}] 수집된 데이터가 없습니다.")
 
+            search_end_time = time.time()
+            search_elapsed = search_end_time - search_start_time
+            search_hours = int(search_elapsed // 3600)
+            search_minutes = int((search_elapsed % 3600) // 60)
+            search_seconds = int(search_elapsed % 60)
+            print(
+                f"\n[{search_key}] 처리 시간: {search_hours}시간 {search_minutes}분 {search_seconds}초"
+            )
+
             # 다음 키워드/카테고리 준비 중 (마지막이 아닐 때만)
             if k_idx < total_count - 1:  # 마지막이 아닐 때만
                 print(f">>> 다음 항목 준비 중 (20.0초)...")
@@ -237,14 +257,6 @@ def main():
 
     except KeyboardInterrupt:
         print("\n>>> 사용자에 의해 작업이 중단되었습니다.")
-
-    finally:
-        end_time = time.time()
-        elapsed_time = end_time - start_time
-        hours = int(elapsed_time // 3600)
-        minutes = int((elapsed_time % 3600) // 60)
-        seconds = int(elapsed_time % 60)
-        print(f"\n총 실행 시간: {hours}시간 {minutes}분 {seconds}초")
 
 
 def driver_cleanup(driver):

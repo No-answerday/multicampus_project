@@ -151,17 +151,6 @@ def get_product_reviews(driver, url, rank_num, target_review_count=100):
     except:
         pass
 
-    result_data["product_info"] = {
-        "product_id": product_id,
-        "brand": brand_name,
-        "category_path": category_str,
-        "product_name": product_name,
-        "price": price,
-        "delivery_type": delivery_type,
-        "total_reviews": total_reviews,
-        "product_url": url,
-    }
-
     print(f"   -> 상품ID: {product_id} / 브랜드: {brand_name} / 상품명: {product_name}")
     print(f"   -> 가격: {price}원 / 배송: {delivery_type} / 총리뷰: {total_reviews}")
 
@@ -180,6 +169,17 @@ def get_product_reviews(driver, url, rank_num, target_review_count=100):
         time.sleep(2)
     except:
         print("   -> 리뷰 섹션을 찾을 수 없습니다. (리뷰 없음 추정)")
+        result_data["product_info"] = {
+            "product_id": product_id,
+            "brand": brand_name,
+            "category_path": category_str,
+            "product_name": product_name,
+            "price": price,
+            "delivery_type": delivery_type,
+            "total_reviews": total_reviews,
+            "product_url": url,
+            "rating_distribution": {"5": 0, "4": 0, "3": 0, "2": 0, "1": 0},
+        }
         return result_data
 
     # -------------------------------------------------------
@@ -196,6 +196,64 @@ def get_product_reviews(driver, url, rank_num, target_review_count=100):
 
     all_reviews_list = []
     total_text_collected = 0
+
+    rating_distribution = {"5": 0, "4": 0, "3": 0, "2": 0, "1": 0}
+
+    # 첫 번째 별점 처리 전에 드롭다운에서 실제 별점별 개수 추출
+    try:
+        # 리뷰 섹션 상단으로 스크롤
+        review_section = driver.find_element(By.ID, "sdpReview")
+        driver.execute_script("arguments[0].scrollIntoView(true);", review_section)
+        driver.execute_script("window.scrollBy(0, -200);")
+        time.sleep(1)
+
+        dropdown_trigger = WebDriverWait(driver, 5).until(
+            EC.element_to_be_clickable(
+                (
+                    By.XPATH,
+                    "//div[contains(@class, 'twc-flex') and contains(@class, 'twc-items-center') and contains(@class, 'twc-cursor-pointer')]//div[contains(@class, 'twc-text-[14px]')]",
+                )
+            )
+        )
+        driver.execute_script(
+            "arguments[0].scrollIntoView({block: 'center'});", dropdown_trigger
+        )
+        time.sleep(0.5)
+        driver.execute_script("arguments[0].click();", dropdown_trigger)
+        time.sleep(1)
+
+        import re
+
+        for star_info in STAR_RATINGS:
+            target_text = star_info["text"]
+            target_score = star_info["score"]
+            try:
+                option_xpath = f"//*[@data-radix-popper-content-wrapper]//*[text()='{target_text}']"
+                text_element = driver.find_element(By.XPATH, option_xpath)
+
+                parent_element = text_element.find_element(By.XPATH, "./..")
+                full_text = parent_element.text.strip()
+
+                match = re.search(r"\n([0-9,]+)", full_text)
+                if not match:
+                    match = re.search(r"\(([0-9,]+)\)", full_text)
+
+                if match:
+                    count_str = match.group(1).replace(",", "")
+                    rating_distribution[str(target_score)] = int(count_str)
+                    print(f"   -> {target_text}({target_score}점) 리뷰: {count_str}개")
+                else:
+                    print(
+                        f"   -> {target_text} 개수 추출 실패 - 전체 텍스트: '{full_text}'"
+                    )
+            except Exception as e:
+                print(f"   -> {target_text} 개수 추출 실패: {e}")
+
+        driver.execute_script("document.body.click();")
+        time.sleep(0.5)
+
+    except Exception as e:
+        print(f"   -> 별점별 개수 추출 실패: {e}")
 
     for star_info in STAR_RATINGS:
         target_score = star_info["score"]
@@ -236,7 +294,7 @@ def get_product_reviews(driver, url, rank_num, target_review_count=100):
             # print(f"     -> 현재 드롭다운 상태: {dropdown_trigger.text.strip()}")
 
             driver.execute_script("arguments[0].click();", dropdown_trigger)
-            time.sleep(1)  # 팝업 애니메이션 대기
+            time.sleep(0.7)  # 팝업 애니메이션 대기
 
         except Exception as e:
             print(f"     -> [SKIP] 드롭다운 버튼 클릭 실패: {e}")
@@ -260,8 +318,8 @@ def get_product_reviews(driver, url, rank_num, target_review_count=100):
             time.sleep(0.5)
             driver.execute_script("arguments[0].click();", star_option)
 
-            print(f"     -> 필터 적용 완료: {target_text}")
-            time.sleep(3)  # 리스트 갱신 대기 (중요)
+            # print(f"     -> 필터 적용 완료: {target_text}")
+            time.sleep(1.5)  # 리스트 갱신 대기 (중요)
 
         except Exception as e:
             print(f"     -> [SKIP] 옵션('{target_text}') 클릭 실패: {e}")
@@ -440,6 +498,18 @@ def get_product_reviews(driver, url, rank_num, target_review_count=100):
                         f"     -> 마지막 페이지 도달 ({current_page_num}페이지, '{target_text}' 수집: {star_collected_count}개)"
                     )
                     break
+
+    result_data["product_info"] = {
+        "product_id": product_id,
+        "brand": brand_name,
+        "category_path": category_str,
+        "product_name": product_name,
+        "price": price,
+        "delivery_type": delivery_type,
+        "total_reviews": total_reviews,
+        "product_url": url,
+        "rating_distribution": rating_distribution,
+    }
 
     result_data["reviews"] = {
         "total_count": len(all_reviews_list),
