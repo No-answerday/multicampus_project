@@ -268,9 +268,19 @@ def get_product_reviews(driver, url, rank_num, target_review_count=100):
         target_score = star_info["score"]
         target_text = star_info["text"]
 
-        # print(
-        #     f"\n   >>> [별점 변경] '{target_text}' 리뷰 수집 시작 (목표: {target_review_count}개)"
-        # )
+        # 이 별점의 실제 개수 확인
+        actual_count = rating_distribution.get(str(target_score), 0)
+
+        # 10% 계산
+        ten_percent = int(actual_count * 0.1)
+
+        # 최종 수집 목표: max(REVIEW_TARGET, 10%)
+        dynamic_target = max(target_review_count, ten_percent)
+
+        print(f"\n   >>> [별점 변경] '{target_text}' 리뷰 수집 시작")
+        print(
+            f"       실제 리뷰: {actual_count}개 | 10%: {ten_percent}개 | 기본 목표: {target_review_count}개 → 수집 목표: {dynamic_target}개"
+        )
 
         # 리뷰 섹션 상단으로 스크롤 (드롭다운 버튼이 보이도록)
         try:
@@ -346,7 +356,7 @@ def get_product_reviews(driver, url, rank_num, target_review_count=100):
             0  # 이 별점에서 수집한 전체 리뷰 개수 (내용 유무 상관없이)
         )
         star_text_count = 0  # 이 별점에서 수집한 텍스트 리뷰 개수
-        STAR_LIMIT = target_review_count  # 각 별점당 목표 개수
+        STAR_LIMIT = dynamic_target  # 동적으로 계산된 목표 개수
 
         while star_collected_count < STAR_LIMIT:
             # 리뷰 파싱
