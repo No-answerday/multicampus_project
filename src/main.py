@@ -272,6 +272,36 @@ def main():
     except KeyboardInterrupt:
         print("\n>>> 사용자에 의해 작업이 중단되었습니다.")
 
+        # 드라이버 정리
+        try:
+            if driver:
+                print(">>> 드라이버 정리 중...")
+                driver = driver_cleanup(driver)
+        except:
+            pass
+
+        # 현재까지 수집된 데이터가 있으면 저장
+        try:
+            if crawled_data_list:
+                result_json = {
+                    "search_name": search_key,
+                    "total_collected_reviews": keyword_total_collected,
+                    "total_text_reviews": keyword_total_text,
+                    "total_product": len(crawled_data_list),
+                    "total_rating_distribution": total_rating_distribution,
+                    "data": crawled_data_list,
+                }
+
+                filename = f"result_{search_key}_interrupted.json"
+                with open(filename, "w", encoding="utf-8") as f:
+                    json.dump(result_json, f, indent=2, ensure_ascii=False)
+                print(f">>> 중단 시점까지의 데이터 저장 완료: {filename}")
+                print(
+                    f">>> 저장된 데이터: 상품 {len(crawled_data_list)}개, 리뷰 {keyword_total_collected}개"
+                )
+        except Exception as e:
+            print(f">>> 데이터 저장 중 오류: {e}")
+
 
 def driver_cleanup(driver):
     try:
