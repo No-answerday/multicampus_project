@@ -24,8 +24,9 @@ def main():
     MODE = "CATEGORY"
     TARGETS = {"스킨": "486248", "로션": "486249"}
 
-    PRODUCT_LIMIT = 2
-    REVIEW_TARGET = 10
+    PRODUCT_LIMIT = 100
+    REVIEW_TARGET = 250
+    MAX_REVIEWS_PER_SEARCH = 10000
 
     print(">>> 전체 작업을 시작합니다...")
 
@@ -164,6 +165,18 @@ def main():
                                 )
 
                             success = True
+
+                            # 타겟 리뷰 개수 도달 체크
+                            if keyword_total_collected >= MAX_REVIEWS_PER_SEARCH:
+                                print(
+                                    f"\n>>> [{search_key}] 타겟 리뷰 개수({MAX_REVIEWS_PER_SEARCH}개) 도달!"
+                                )
+                                print(
+                                    f">>> 현재 수집: {keyword_total_collected}개 / URL 남음: {len(urls) - idx - 1}개"
+                                )
+                                print(f">>> 수집을 종료하고 저장합니다.")
+                                break
+
                             break
                         else:
                             print("     -> [실패] 데이터가 비어있습니다. 재시도합니다.")
@@ -185,6 +198,10 @@ def main():
                     print(
                         f"     -> [최종 실패] {MAX_RETRIES}번 시도했으나 수집 실패. 다음 상품으로 넘어갑니다."
                     )
+
+                # 타겟 리뷰 개수 도달 시 URL 루프 탈출
+                if keyword_total_collected >= MAX_REVIEWS_PER_SEARCH:
+                    break
 
                 print(f"     -> 다음 상품 대기중...(2초)")
                 time.sleep(2)
