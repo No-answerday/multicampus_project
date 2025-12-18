@@ -316,6 +316,11 @@ def get_product_reviews(
         # 이 별점의 실제 개수 확인
         actual_count = rating_distribution.get(str(target_score), 0)
 
+        # 해당 별점의 리뷰가 0개면 드롭다운 클릭하지 않고 스킵
+        if actual_count == 0:
+            print(f"\n   >>> [별점 스킵] '{target_text}' 리뷰 0개 - 수집하지 않음")
+            continue
+
         # 10% 계산
         ten_percent = int(actual_count * 0.1)
 
