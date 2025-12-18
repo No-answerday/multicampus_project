@@ -354,9 +354,9 @@ def get_product_reviews(driver, url, rank_num, target_review_count=100):
             review_articles = curr_soup.select("article.twc-border-bluegray-200")
 
             if not review_articles:
-                print(
-                    f"     -> 더 이상 표시할 리뷰가 없습니다. ('{target_text}' 수집: {star_collected_count}개)"
-                )
+                # print(
+                #     f"     -> 더 이상 표시할 리뷰가 없습니다. ('{target_text}' 수집: {star_collected_count}개)"
+                # )
                 break
 
             collected_timestamp = datetime.now().strftime("%Y.%m.%d %H:%M:%S")
@@ -503,9 +503,9 @@ def get_product_reviews(driver, url, rank_num, target_review_count=100):
                     time.sleep(random.uniform(0.35, 0.4))
                     current_page_num += 1
                 except:
-                    print(
-                        f"     -> 마지막 페이지 도달 ({current_page_num}페이지, '{target_text}' 수집: {star_collected_count}개)"
-                    )
+                    # print(
+                    #     f"     -> 마지막 페이지 도달 ({current_page_num}페이지, '{target_text}' 수집: {star_collected_count}개)"
+                    # )
                     break
 
     result_data["product_info"] = {
