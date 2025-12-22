@@ -21,7 +21,16 @@ def main():
 
     # [방법 2] 카테고리 수집을 원할 때
     MODE = "CATEGORY"
-    TARGETS = {"미스트": "486251"}
+    TARGETS = {
+        # "올인원": "486271",
+        # "알로에_수딩_애프터선": "486272",
+        # "기초세트": "486254",
+        # "블러셔": "176595",
+        # "하이라이터": "403010",
+        # "셰이딩": "403011",
+        "쿠션_팩트": "403009",
+        "파운데이션": "176591",
+    }
     PRODUCT_LIMIT = 200
     REVIEW_TARGET = 200
     MAX_REVIEWS_PER_SEARCH = 50000
@@ -115,6 +124,11 @@ def main():
             # URL 수집 재시도 로직
             URL_COLLECT_MAX_RETRIES = 3
             urls = []
+            consecutive_failures = (
+                0  # 연속 실패 카운터 (URL 실패 + 리뷰 수집 실패 통합)
+            )
+            CONSECUTIVE_FAIL_LIMIT = 10  # 연속 실패 허용 횟수
+            WAIT_TIME_ON_CONSECUTIVE_FAIL = 15 * 60  # 15분 (초 단위)
 
             for url_attempt in range(URL_COLLECT_MAX_RETRIES):
                 print(
@@ -163,16 +177,28 @@ def main():
                     time.sleep(1)
                     # 성공하면 루프 탈출
                     if urls or processed_urls:
+                        consecutive_failures = 0  # 성공 시 연속 실패 카운터 리셋
                         break
                     else:
                         print(f">>> URL 수집 실패 (0개) - 재시도합니다.")
+                        consecutive_failures += 1
 
                 except Exception as e:
                     print(f">>> URL 수집 중 에러: {e}")
                     urls = []
+                    consecutive_failures += 1
                 finally:
                     print(">>> URL 수집 브라우저 종료 및 메모리 정리 중...")
                     driver = driver_cleanup(driver)
+
+                    # 연속 실패 5번 체크
+                    if consecutive_failures >= CONSECUTIVE_FAIL_LIMIT:
+                        print(f"\n!!! 연속 {consecutive_failures}번 실패 감지 !!!")
+                        print(
+                            f"!!! {WAIT_TIME_ON_CONSECUTIVE_FAIL // 60}분 대기 후 재시도합니다..."
+                        )
+                        time.sleep(WAIT_TIME_ON_CONSECUTIVE_FAIL)
+                        consecutive_failures = 0  # 대기 후 카운터 리셋
 
                 # 마지막 시도가 아니면 대기
                 if url_attempt < URL_COLLECT_MAX_RETRIES - 1 and not urls:
@@ -245,6 +271,7 @@ def main():
                             print(
                                 "     -> [브랜드 본사 정품] 드라이버 재시작 없이 다음 상품으로 넘어갑니다."
                             )
+                            consecutive_failures = 0  # 성공으로 간주하고 카운터 리셋
                             success = True
                             break
 
@@ -260,6 +287,9 @@ def main():
                             if current_collected == 0:
                                 print(
                                     "     -> [스킵] 리뷰가 0개입니다. 저장하지 않고 다음 상품으로 넘어갑니다."
+                                )
+                                consecutive_failures = (
+                                    0  # 성공으로 간주하고 카운터 리셋
                                 )
                                 success = True
                                 break
@@ -283,6 +313,7 @@ def main():
                                 f"     -> 키워드 누적: {keyword_total_collected}개 / 현 드라이버: {driver_collected_count}개"
                             )
 
+                            consecutive_failures = 0  # 성공 시 연속 실패 카운터 리셋
                             success = True
 
                             # 타겟 리뷰 개수 도달 체크
@@ -299,16 +330,38 @@ def main():
                             break
                         else:
                             print("     -> [실패] 데이터가 비어있습니다. 재시도합니다.")
+                            consecutive_failures += 1
                             # 드라이버 재시작
                             driver = driver_cleanup(driver)
                             driver_collected_count = 0
 
+                            # 연속 실패 5번 체크
+                            if consecutive_failures >= CONSECUTIVE_FAIL_LIMIT:
+                                print(
+                                    f"\n!!! 연속 {consecutive_failures}번 실패 감지 !!!"
+                                )
+                                print(
+                                    f"!!! {WAIT_TIME_ON_CONSECUTIVE_FAIL // 60}분 대기 후 재시도합니다..."
+                                )
+                                time.sleep(WAIT_TIME_ON_CONSECUTIVE_FAIL)
+                                consecutive_failures = 0  # 대기 후 카운터 리셋
+
                     except Exception as e:
                         print(f"     -> [에러 발생] {e}")
+                        consecutive_failures += 1
                         # 에러 발생 시 드라이버 재시작
                         if driver:
                             driver = driver_cleanup(driver)
                             driver_collected_count = 0
+
+                        # 연속 실패 5번 체크
+                        if consecutive_failures >= CONSECUTIVE_FAIL_LIMIT:
+                            print(f"\n!!! 연속 {consecutive_failures}번 실패 감지 !!!")
+                            print(
+                                f"!!! {WAIT_TIME_ON_CONSECUTIVE_FAIL // 60}분 대기 후 재시도합니다..."
+                            )
+                            time.sleep(WAIT_TIME_ON_CONSECUTIVE_FAIL)
+                            consecutive_failures = 0  # 대기 후 카운터 리셋
 
                         continue
 
