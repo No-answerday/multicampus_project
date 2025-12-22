@@ -208,7 +208,7 @@ def get_product_reviews(
     # [리뷰 섹션 준비]
     # -------------------------------------------------------
     driver.execute_script("window.scrollTo(0, document.body.scrollHeight * 0.3);")
-    time.sleep(1)
+    time.sleep(random.uniform(1, 1.5))
 
     try:
         review_section = WebDriverWait(driver, 10).until(
@@ -216,7 +216,7 @@ def get_product_reviews(
         )
         driver.execute_script("arguments[0].scrollIntoView(true);", review_section)
         driver.execute_script("window.scrollBy(0, -200);")
-        time.sleep(2)
+        time.sleep(random.uniform(2, 2.5))
     except:
         print("   -> 리뷰 섹션을 찾을 수 없습니다. (리뷰 없음 추정)")
         result_data["product_info"] = {
@@ -255,7 +255,7 @@ def get_product_reviews(
         review_section = driver.find_element(By.ID, "sdpReview")
         driver.execute_script("arguments[0].scrollIntoView(true);", review_section)
         driver.execute_script("window.scrollBy(0, -200);")
-        time.sleep(1)
+        time.sleep(random.uniform(1, 1.5))
 
         dropdown_trigger = WebDriverWait(driver, 5).until(
             EC.element_to_be_clickable(
@@ -268,9 +268,9 @@ def get_product_reviews(
         driver.execute_script(
             "arguments[0].scrollIntoView({block: 'center'});", dropdown_trigger
         )
-        time.sleep(0.5)
+        time.sleep(random.uniform(0.5, 1))
         driver.execute_script("arguments[0].click();", dropdown_trigger)
-        time.sleep(1)
+        time.sleep(random.uniform(1, 1.5))
 
         import re
 
@@ -300,7 +300,7 @@ def get_product_reviews(
                 print(f"   -> {target_text} 개수 추출 실패: {e}")
 
         driver.execute_script("document.body.click();")
-        time.sleep(0.5)
+        time.sleep(random.uniform(0.5, 1))
 
     except Exception as e:
         print(f"   -> 별점별 개수 추출 실패: {e}")
@@ -360,11 +360,11 @@ def get_product_reviews(
             review_section = driver.find_element(By.ID, "sdpReview")
             driver.execute_script("arguments[0].scrollIntoView(true);", review_section)
             driver.execute_script("window.scrollBy(0, -200);")  # 헤더 공간 확보
-            time.sleep(0.7)
+            time.sleep(random.uniform(0.7, 1))
         except:
             # 리뷰 섹션을 못 찾으면 페이지 상단으로
             driver.execute_script("window.scrollTo(0, 0);")
-            time.sleep(0.7)
+            time.sleep(random.uniform(0.7, 1))
         # 1. 별점 드롭다운 열기 (Test Script의 XPath 사용)
         try:
             dropdown_trigger = WebDriverWait(driver, 5).until(
@@ -379,13 +379,13 @@ def get_product_reviews(
             driver.execute_script(
                 "arguments[0].scrollIntoView({block: 'center'});", dropdown_trigger
             )
-            time.sleep(0.5)
+            time.sleep(random.uniform(0.5, 1))
 
             # 현재 선택된 텍스트 확인 (디버깅용)
             # print(f"     -> 현재 드롭다운 상태: {dropdown_trigger.text.strip()}")
 
             driver.execute_script("arguments[0].click();", dropdown_trigger)
-            time.sleep(0.6)  # 팝업 애니메이션 대기
+            time.sleep(random.uniform(0.6, 1))  # 팝업 애니메이션 대기
 
         except Exception as e:
             print(f"     -> [SKIP] 드롭다운 버튼 클릭 실패: {e}")
@@ -406,12 +406,11 @@ def get_product_reviews(
             driver.execute_script(
                 "arguments[0].scrollIntoView({block: 'center'});", star_option
             )
-            time.sleep(0.5)
+            time.sleep(random.uniform(0.5, 1))
             driver.execute_script("arguments[0].click();", star_option)
 
             # print(f"     -> 필터 적용 완료: {target_text}")
-            time.sleep(0.8)  # 리스트 갱신 대기 (중요)
-
+            time.sleep(random.uniform(0.8, 1.2))  # 리스트 갱신 대기 (중요)
         except Exception as e:
             print(f"     -> [SKIP] 옵션('{target_text}') 클릭 실패: {e}")
             try:
@@ -549,7 +548,7 @@ def get_product_reviews(
                         next_arrow_btn,
                     )
                     driver.execute_script("arguments[0].click();", next_arrow_btn)
-                    time.sleep(random.uniform(0.5, 0.6))
+                    time.sleep(random.uniform(0.7, 1))
 
                     next_page_number = current_page_num + 1
                     next_block_first_btn = WebDriverWait(driver, 5).until(
@@ -561,7 +560,7 @@ def get_product_reviews(
                         )
                     )
                     driver.execute_script("arguments[0].click();", next_block_first_btn)
-                    time.sleep(random.uniform(0.25, 0.27))
+                    time.sleep(random.uniform(0.7, 1))
 
                     current_page_num = next_page_number
                     continue
@@ -582,7 +581,7 @@ def get_product_reviews(
                         "arguments[0].scrollIntoView({block: 'center'});", next_btn
                     )
                     driver.execute_script("arguments[0].click();", next_btn)
-                    time.sleep(random.uniform(0.25, 0.27))
+                    time.sleep(random.uniform(0.7, 1))
                     current_page_num += 1
                 except:
                     # print(
