@@ -26,10 +26,10 @@ def main():
         # "알로에_수딩_애프터선": "486272",
         # "기초세트": "486254",
         # "블러셔": "176595",
-        # "하이라이터": "403010",
-        # "셰이딩": "403011",
-        "쿠션_팩트": "403009",
-        "파운데이션": "176591",
+        "하이라이터": "403010",
+        "셰이딩": "403011",
+        # "쿠션_팩트": "403009",
+        # "파운데이션": "176591",
     }
     PRODUCT_LIMIT = 200
     REVIEW_TARGET = 200
@@ -128,7 +128,7 @@ def main():
                 0  # 연속 실패 카운터 (URL 실패 + 리뷰 수집 실패 통합)
             )
             CONSECUTIVE_FAIL_LIMIT = 10  # 연속 실패 허용 횟수
-            WAIT_TIME_ON_CONSECUTIVE_FAIL = 15 * 60  # 15분 (초 단위)
+            WAIT_TIME_ON_CONSECUTIVE_FAIL = 20 * 60  # 20분 (초 단위)
 
             for url_attempt in range(URL_COLLECT_MAX_RETRIES):
                 print(
