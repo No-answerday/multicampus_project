@@ -1,38 +1,41 @@
 import json
+import os
+import glob
+from pathlib import Path
 from preprocess_format import preprocess_format
 from brand_standardizer import brand_standardizer
 from drop_missing_val_splitter import drop_missing_val_splitter
 from reviews_with_word2vec import reviews_with_word2vec
 
 
-def main():
+def process_single_file(input_path, output_dir):
     """
-    전처리 파이프라인을 순차적으로 실행합니다.
-    1. preprocess_format: 데이터 포맷 변환 (날짜, 정수형 변환, 텍스트 정규화, 중복 제거)
-    2. brand_standardizer: 브랜드 및 카테고리 표준화, 상품명 정제
-    3. drop_missing_val_splitter: 결측치 제거 및 텍스트 유무에 따라 파일 분할
+    단일 파일을 전처리하고 결과를 저장합니다.
+
+    Args:
+        input_path: 입력 JSON 파일 경로
+        output_dir: 출력 디렉토리 경로
     """
-
-    # 입력 파일 경로
-    INPUT_FILE = "result_오일.json"
-    OUTPUT_WITH_TEXT = "with_text_drop_missing.json"
-    OUTPUT_WITHOUT_TEXT = "without_text_drop_missing.json"
-
-    print("=" * 60)
-    print("전처리 파이프라인 시작")
+    file_name = os.path.basename(input_path)
+    print("\n" + "=" * 60)
+    print(f"파일 처리 중: {file_name}")
     print("=" * 60)
 
-    # 1단계: 원본 JSON 파일 로드
-    print(f"\n[1단계] JSON 파일 로드 중: {INPUT_FILE}")
+    print("\n" + "=" * 60)
+    print(f"파일 처리 중: {file_name}")
+    print("=" * 60)
+
+    # 1단계: JSON 파일 로드
+    print(f"\n[1단계] JSON 파일 로드 중: {file_name}")
     try:
-        with open(INPUT_FILE, "r", encoding="utf-8") as f:
+        with open(input_path, "r", encoding="utf-8") as f:
             data = json.load(f)
         print(f"✓ 파일 로드 완료 - 상품 수: {len(data.get('data', []))}개")
     except FileNotFoundError:
-        print(f"✗ 에러: {INPUT_FILE} 파일을 찾을 수 없습니다.")
+        print(f"✗ 에러: {input_path} 파일을 찾을 수 없습니다.")
         return
     except json.JSONDecodeError:
-        print(f"✗ 에러: {INPUT_FILE}이 올바른 JSON 형식이 아닙니다.")
+        print(f"✗ 에러: {input_path}이 올바른 JSON 형식이 아닙니다.")
         return
 
     # 2단계: 데이터 포맷 전처리
@@ -50,8 +53,6 @@ def main():
     data = preprocess_format(temp_file)
 
     # 임시 파일 삭제
-    import os
-
     if os.path.exists(temp_file):
         os.remove(temp_file)
 
@@ -89,20 +90,76 @@ def main():
     # 6단계: 최종 결과 저장
     print("\n[6단계] 결과 파일 저장 중...")
 
-    with open(OUTPUT_WITH_TEXT, "w", encoding="utf-8") as f:
+    # 출력 디렉토리 생성
+    os.makedirs(output_dir, exist_ok=True)
+
+    # 파일명 변환: result_오일.json -> processed_오일_with_text.json
+    base_name = os.path.splitext(file_name)[0]  # result_오일
+    if base_name.startswith("result_"):
+        base_name = base_name[7:]  # "result_" 제거 -> 오일
+
+    output_with_text = os.path.join(output_dir, f"processed_{base_name}_with_text.json")
+    output_without_text = os.path.join(
+        output_dir, f"processed_{base_name}_without_text.json"
+    )
+
+    with open(output_with_text, "w", encoding="utf-8") as f:
         json.dump(with_text, f, ensure_ascii=False, indent=2)
-    print(f"✓ 텍스트 포함 파일 저장 완료: {OUTPUT_WITH_TEXT}")
+    print(f"✓ 텍스트 포함 파일 저장 완료: {output_with_text}")
     print(f"  - 상품 수: {with_text['total_product']}개")
     print(f"  - 리뷰 수: {with_text['total_collected_reviews']}개")
 
-    with open(OUTPUT_WITHOUT_TEXT, "w", encoding="utf-8") as f:
+    with open(output_without_text, "w", encoding="utf-8") as f:
         json.dump(without_text, f, ensure_ascii=False, indent=2)
-    print(f"✓ 텍스트 미포함 파일 저장 완료: {OUTPUT_WITHOUT_TEXT}")
+    print(f"✓ 텍스트 미포함 파일 저장 완료: {output_without_text}")
     print(f"  - 상품 수: {without_text['total_product']}개")
     print(f"  - 리뷰 수: {without_text['total_collected_reviews']}개")
 
-    print("\n" + "=" * 60)
-    print("전처리 파이프라인 완료!")
+
+def main():
+    """
+    ./data/pre_data 내 모든 JSON 파일을 순회하며 전처리 파이프라인을 실행합니다.
+    결과는 ./data/processed_data에 동일한 폴더 구조로 저장됩니다.
+    """
+    # 기본 경로 설정
+    PRE_DATA_DIR = "./data/pre_data"
+    PROCESSED_DATA_DIR = "./data/processed_data"
+
+    print("=" * 60)
+    print("전체 전처리 파이프라인 시작")
+    print("=" * 60)
+
+    # pre_data 디렉토리의 모든 JSON 파일 찾기
+    json_files = glob.glob(os.path.join(PRE_DATA_DIR, "**", "*.json"), recursive=True)
+
+    if not json_files:
+        print(f"\n✗ {PRE_DATA_DIR} 디렉토리에서 JSON 파일을 찾을 수 없습니다.")
+        return
+
+    print(f"\n총 {len(json_files)}개 파일 발견")
+
+    for idx, input_path in enumerate(json_files, 1):
+        print(f"\n\n{'='*60}")
+        print(f"[{idx}/{len(json_files)}] 처리 중")
+        print(f"{'='*60}")
+
+        # 상대 경로 계산 (pre_data 기준)
+        rel_path = os.path.relpath(input_path, PRE_DATA_DIR)
+        rel_dir = os.path.dirname(rel_path)
+
+        # 출력 디렉토리 경로 생성
+        output_dir = os.path.join(PROCESSED_DATA_DIR, rel_dir)
+
+        # 파일 처리
+        try:
+            process_single_file(input_path, output_dir)
+        except Exception as e:
+            print(f"\n✗ 에러 발생: {e}")
+            print(f"   파일: {input_path}")
+            continue
+
+    print("\n\n" + "=" * 60)
+    print("전체 전처리 파이프라인 완료!")
     print("=" * 60)
 
 
