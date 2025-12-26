@@ -8,6 +8,7 @@ import glob
 import pickle
 import warnings
 import sys
+import unicodedata
 from contextlib import contextmanager
 import numpy as np
 from gensim.models import Word2Vec
@@ -103,8 +104,10 @@ def preprocess_and_tokenize_file(args):
 
             # product_id를 전역적으로 고유하게 만들기 (카테고리_원본ID)
             original_id = p_info.get("product_id", p_info.get("id", ""))
-            category = base_name  # 파일명이 카테고리
-            unique_product_id = f"{category}_{original_id}"
+            category = unicodedata.normalize("NFC", str(base_name))  # NFC 정규화
+            unique_product_id = unicodedata.normalize(
+                "NFC", f"{category}_{original_id}"
+            )  # NFC 정규화
 
             # product_info에 고유 ID 업데이트
             p_info["product_id"] = unique_product_id

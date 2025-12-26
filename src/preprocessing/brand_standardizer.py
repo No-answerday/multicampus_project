@@ -190,7 +190,7 @@ def preprocess_product_info(product_info: Dict, brand_patterns: dict) -> Dict:
     # 브랜드 표준화 (원본 필드에 덮어씌움)
     brand_normal = normalize_brand(product_info.get("brand"))
     product_info["brand"] = brand_normal
-    product_info["category_norm"] = normalize_category(
+    product_info["category_normal"] = normalize_category(
         product_info.get("category_path")
     )
 

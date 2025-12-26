@@ -6,6 +6,7 @@ import os
 import re
 import glob
 import pickle
+import unicodedata
 import numpy as np
 import pandas as pd
 from konlpy.tag import Okt
@@ -109,7 +110,6 @@ def load_products_parquet(
 def load_reviews_parquet(
     parquet_path="./data/processed_data/integrated_reviews_detail.parquet",
     product_id=None,
-    category=None,
 ):
     """
     리뷰 상세 Parquet 파일 로드 (필터링 옵션)
@@ -117,37 +117,23 @@ def load_reviews_parquet(
     Args:
         parquet_path: Parquet 파일 경로
         product_id: 특정 상품 ID로 필터링 (None이면 전체 로드)
-        category: 카테고리로 추가 필터링 (product_id 중복 방지)
 
     Returns:
         DataFrame: 리뷰 상세 정보 (tokens, word2vec 포함)
 
     Note:
-        product_id는 카테고리별로 중복될 수 있으므로,
-        정확한 필터링을 위해 category와 함께 사용하는 것을 권장합니다.
+        product_id는 이미 카테고리와 조합된 고유 ID입니다 (예: "로션_1")
     """
     try:
-        filters = []
+        df = pd.read_parquet(parquet_path)
 
-        if product_id and category:
-            # product_id + category 조합으로 필터링 (권장)
-            df = pd.read_parquet(parquet_path)
-            df = df[(df["product_id"] == product_id)]
-            # category 정보가 리뷰 테이블에 없을 수 있으므로, 상품 테이블과 조인 필요
-            return df
-        elif product_id:
-            # product_id만으로 필터링 (중복 가능성 있음)
-            print(
-                "[경고] product_id는 카테고리별로 중복될 수 있습니다. category도 함께 지정하세요."
-            )
-            df = pd.read_parquet(parquet_path)
-            df = df[df["product_id"] == product_id]
-            return df
-        else:
-            # 전체 리뷰 로드
-            df = pd.read_parquet(parquet_path)
-            return df
+        if product_id:
+            # product_id를 NFC로 정규화하여 비교
+            normalized_id = unicodedata.normalize("NFC", str(product_id))
+            df = df[df["product_id"] == normalized_id]
 
+        return df
+    except FileNotFoundError:
         print(f"[오류] 파일을 찾을 수 없습니다: {parquet_path}")
         return None
     except Exception as e:
@@ -177,3 +163,25 @@ def load_reviews_by_products(
     except Exception as e:
         print(f"[오류] Parquet 파일 읽기 실패: {e}")
         return None
+
+
+# 테스트
+if __name__ == "__main__":
+    products_df = load_products_parquet()
+    if products_df is not None:
+        print("상품 데이터 샘플:")
+        print(products_df.head())
+        print("\n")
+
+    reviews_df = load_reviews_parquet(product_id="선스틱_1")
+    if reviews_df is not None:
+        print("리뷰 데이터 샘플:")
+        print(reviews_df.head())
+
+    reviews_dfs = load_reviews_by_products(product_ids=["선스틱_1", "선쿠션_선팩트_1"])
+    if reviews_dfs is not None:
+        print("여러 상품 리뷰 데이터 샘플:")
+        print(reviews_dfs.head())
+        # 처음꺼랑 마지막꺼
+        # print(reviews_dfs.iloc[0])
+        # print(reviews_dfs.iloc[-1])
