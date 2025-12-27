@@ -1,16 +1,18 @@
 import json
 import re
 import os
+import unicodedata
 from datetime import datetime
 
 
 def normalize_text(text):
     if not text:
         return text
-
+    text = unicodedata.normalize("NFC", text)
     text = re.sub(r"[^가-힣a-zA-Z0-9\s.,!?~❤️]", "", text)
     text = re.sub(r"([ㄱ-ㅎㅏ-ㅣ])\1+", r"\1\1", text)
     text = re.sub(r"([ㄱ-ㅎㅏ-ㅣ]{2})\1+", r"\1\1", text)
+    text = re.sub(r"\s+", " ", text)
     return text.strip()
 
 
