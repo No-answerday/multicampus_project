@@ -10,12 +10,19 @@ import warnings
 import sys
 import unicodedata
 from contextlib import contextmanager
+from collections import Counter
 import numpy as np
 from gensim.models import Word2Vec
 from multiprocessing import cpu_count
 from preprocess_format import preprocess_format
 from brand_standardizer import brand_standardizer
 from drop_missing_val_splitter import drop_missing_val_splitter
+from skintype import classify_product
+from sentiment_analysis import (
+    analyze_skin_type_frequency,
+    analyze_category_sentiment,
+    analyze_product_sentiment,
+)
 from preprocessing_utils import (
     load_stopwords,
     get_tokens,
@@ -114,6 +121,10 @@ def preprocess_and_tokenize_file(args):
             p_info["original_product_id"] = original_id  # 원본 ID 보존
             p_info["category_file"] = category
 
+            # skin_type 추가
+            skin_result = classify_product(product)
+            p_info["skin_type"] = skin_result.get("skin_type", "미분류")
+
             product_tokens = {
                 "product_id": unique_product_id,
                 "reviews": [],
@@ -123,12 +134,26 @@ def preprocess_and_tokenize_file(args):
                 full_text = review.get("full_text", "")
                 tokens = get_tokens(full_text, stopwords)
 
+                # label 생성 (score 기반: 4-5점=긍정(1), 1-2점=부정(0), 3점=중립(제외))
+                score = review.get("score", 3)
+                if score >= 4:
+                    label = 1  # 긍정
+                elif score <= 2:
+                    label = 0  # 부정
+                else:
+                    label = None  # 중립 (분석 제외)
+
+                # 원본 리뷰 객체에 tokens와 label 주입 (감성 분석을 위해)
+                review["tokens"] = tokens
+                review["label"] = label
+
                 # 토큰 저장 (글자 수, 토큰 수 포함)
                 product_tokens["reviews"].append(
                     {
                         "review_id": review.get("id"),
                         "tokens": tokens,
-                        "score": review.get("score", 3),
+                        "score": score,
+                        "label": label,
                         "char_length": len(full_text),
                         "token_count": len(tokens),
                     }
@@ -302,7 +327,18 @@ def vectorize_file(args):
                 product_info["representative_review_id"] = None
                 product_info["representative_similarity"] = 0.0
 
+            # 상품별 감성 키워드 분석
+            sentiment_result = analyze_product_sentiment(
+                product, top_n=30, min_doc_freq=5
+            )
+            product_info["sentiment_analysis"] = sentiment_result
+
             product_summaries.append(product_info)
+
+        # 카테고리별 감성 키워드 분석
+        category_sentiment = analyze_category_sentiment(
+            with_text.get("data", []), top_n=30, min_doc_freq=20
+        )
 
         # 결과 저장
         os.makedirs(output_dir, exist_ok=True)
@@ -315,13 +351,14 @@ def vectorize_file(args):
             output_dir, f"processed_{base_name}_without_text.json"
         )
 
-        # with_text: 메타데이터 포함하여 저장
+        # with_text: 메타데이터 + 카테고리 감성 분석 포함하여 저장
         with_text_processed = {
             "search_name": with_text.get("search_name", ""),
             "total_collected_reviews": with_text.get("total_collected_reviews", 0),
             "total_text_reviews": with_text.get("total_text_reviews", 0),
             "total_product": len(product_summaries),
             "total_rating_distribution": with_text.get("total_rating_distribution", {}),
+            "category_sentiment_analysis": category_sentiment,
             "data": product_summaries,
         }
 

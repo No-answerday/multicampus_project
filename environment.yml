@@ -8,6 +8,7 @@ dependencies:
   - tqdm
   - pandas
   - pyarrow
+  - matplotlib
   - pip
   - pip:
       - gensim
@@ -15,5 +16,6 @@ dependencies:
       - selenium
       - undetected-chromedriver
       - beautifulsoup4
+      - wordcloud
 # 설치 법
 # conda env update -f environment.yml

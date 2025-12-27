@@ -4,3 +4,4 @@ data/
 *.json
 *.pkl
 *.parquet
+test.py

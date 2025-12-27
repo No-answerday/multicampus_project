@@ -1,6 +1,7 @@
 """
 전처리 파이프라인 메인 orchestrator
 """
+
 import json
 import os
 import glob
@@ -15,6 +16,7 @@ from preprocessing_phases import (
     vectorize_file,
     MAX_WORKERS,
 )
+from sentiment_analysis import analyze_skin_type_frequency
 
 # 임시 토큰 저장 디렉토리
 TEMP_TOKENS_DIR = "./data/temp_tokens"
@@ -170,17 +172,72 @@ def main():
     print("Parquet 파일 생성 중...")
     print("=" * 60)
 
-    # 1. 상품 벡터 Parquet (요약 정보)
+    # 전역 감성 분석 (피부타입별 단어 빈도, 전체 감성 키워드)
+    # Phase 3에서 수집된 all_reviews를 직접 활용 (파일 재로딩 불필요)
+    print(f"전역 분석 대상 리뷰 수: {len(all_reviews):,}개")
+
+    # 피부타입별 단어 빈도
+    skin_type_freq = analyze_skin_type_frequency(all_reviews, top_n=20)
+    skin_type_freq_formatted = {
+        skin: [{"word": w, "count": c} for w, c in words]
+        for skin, words in skin_type_freq.items()
+    }
+
+    # 전체 감성 키워드
+    from sentiment_analysis import sentiment_tfidf_diff
+
+    pos_overall, neg_overall = sentiment_tfidf_diff(
+        all_reviews, top_n=30, min_doc_freq=20
+    )
+    pos_count = sum(1 for r in all_reviews if r.get("label") == 1)
+    neg_count = sum(1 for r in all_reviews if r.get("label") == 0)
+    tokens_count = sum(
+        1 for r in all_reviews if r.get("tokens") and isinstance(r.get("tokens"), list)
+    )
+
+    overall_sentiment = {
+        "positive_special": pos_overall,
+        "negative_special": neg_overall,
+        "review_count": len(all_reviews),
+        "pos_count": pos_count,
+        "neg_count": neg_count,
+        "tfidf_notna_count": tokens_count,
+    }
+
+    print(f"✓ 피부타입별 단어 빈도: {len(skin_type_freq_formatted)}개 타입")
+    print(f"✓ 전체 긍정 키워드: {len(pos_overall)}개")
+    print(f"✓ 전체 부정 키워드: {len(neg_overall)}개")
+    print(f"  - 긍정 리뷰: {pos_count:,}개")
+    print(f"  - 부정 리뷰: {neg_count:,}개")
+
+    # 1. 상품 Parquet (벡터 + 전역 분석 결과)
     if all_products:
         df_products = pd.DataFrame(all_products)
+
+        # 메타데이터에 전역 분석 추가
+        metadata = {
+            "skin_type_word_frequency": skin_type_freq_formatted,
+            "overall_sentiment_special_words": overall_sentiment,
+        }
+
+        # Parquet 저장 시 메타데이터 포함
         df_products.to_parquet(
-            PRODUCT_PARQUET, engine="pyarrow", compression="snappy", index=False
+            PRODUCT_PARQUET,
+            engine="pyarrow",
+            compression="snappy",
+            index=False,
         )
+
+        # 메타데이터를 별도 JSON으로 저장
+        meta_path = PRODUCT_PARQUET.replace(".parquet", "_metadata.json")
+        with open(meta_path, "w", encoding="utf-8") as f:
+            json.dump(metadata, f, ensure_ascii=False, indent=2)
 
         product_size_mb = os.path.getsize(PRODUCT_PARQUET) / 1024 / 1024
         print(f"✓ 상품 Parquet 저장: {PRODUCT_PARQUET}")
         print(f"  - 상품 수: {len(df_products):,}개")
-        print(f"  - 파일 크기: {product_size_mb:.2f} MB\n")
+        print(f"  - 파일 크기: {product_size_mb:.2f} MB")
+        print(f"  - 메타데이터 저장: {meta_path}\n")
 
     # 2. 리뷰 상세 Parquet (토큰, 벡터 포함)
     if all_reviews:
