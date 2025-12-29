@@ -6,6 +6,10 @@ dependencies:
   - python=3.13
   - numpy
   - tqdm
+  - pandas
+  - pyarrow
+  - matplotlib
+  - seaborn
   - pip
   - pip:
       - gensim
@@ -13,5 +17,6 @@ dependencies:
       - selenium
       - undetected-chromedriver
       - beautifulsoup4
+      - wordcloud
 # 설치 법
 # conda env update -f environment.yml
