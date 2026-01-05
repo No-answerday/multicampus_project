@@ -10,6 +10,8 @@ dependencies:
   - pyarrow
   - matplotlib
   - seaborn
+  - scikit-learn
+  - joblib
   - pip
   - pip:
       - gensim
@@ -22,4 +24,4 @@ dependencies:
       - torch
       - streamlit
 # 설치 법
-# conda env update -f environment.yml
+# conda env update -f _environment.yml
