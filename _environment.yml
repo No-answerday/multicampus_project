@@ -20,5 +20,6 @@ dependencies:
       - wordcloud
       - transformers
       - torch
+      - streamlit
 # 설치 법
 # conda env update -f environment.yml
