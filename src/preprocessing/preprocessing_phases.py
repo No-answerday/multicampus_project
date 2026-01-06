@@ -128,17 +128,17 @@ def preprocess_and_tokenize_file(args):
                 "reason": f"모든 상품의 리뷰가 {min_reviews}개 미만",
             }
 
-        # 4-2. without_text의 product_id 수정 (카테고리_without_원본ID)
+        # 4-2. without_text의 product_id 수정 (카테고리_원본ID)
         for product in without_text.get("data", []):
             p_info = product.get("product_info", {})
             original_id = p_info.get("product_id", p_info.get("id", ""))
             category = unicodedata.normalize("NFC", str(base_name))
             unique_product_id = unicodedata.normalize(
-                "NFC", f"{category}_without_{original_id}"
+                "NFC", f"{category}_{original_id}"
             )
             p_info["product_id"] = unique_product_id
             p_info["original_product_id"] = original_id
-            p_info["category_file"] = category
+            p_info["category"] = category
 
         # 5. 토큰화 (한 번만 수행하고 저장)
         all_tokens = []  # Word2Vec 학습용
@@ -147,17 +147,17 @@ def preprocess_and_tokenize_file(args):
         for product_idx, product in enumerate(with_text.get("data", [])):
             p_info = product.get("product_info", {})
 
-            # product_id를 전역적으로 고유하게 만들기 (카테고리_with_원본ID)
+            # product_id를 전역적으로 고유하게 만들기 (카테고리_원본ID)
             original_id = p_info.get("product_id", p_info.get("id", ""))
             category = unicodedata.normalize("NFC", str(base_name))  # NFC 정규화
             unique_product_id = unicodedata.normalize(
-                "NFC", f"{category}_with_{original_id}"
+                "NFC", f"{category}_{original_id}"
             )  # NFC 정규화
 
             # product_info에 고유 ID 업데이트
             p_info["product_id"] = unique_product_id
             p_info["original_product_id"] = original_id  # 원본 ID 보존
-            p_info["category_file"] = category
+            p_info["category"] = category
 
             # skin_type 추가
             skin_result = classify_product(product)
@@ -468,39 +468,12 @@ def vectorize_file(args):
             with_text.get("data", []), top_n=30, min_doc_freq=20
         )
 
-        # 결과 저장
-        os.makedirs(output_dir, exist_ok=True)
-
-        # JSON: 상품 요약 정보만 저장 (리뷰 제외, 메타데이터 포함)
-        processed_with_text = os.path.join(
-            output_dir, f"processed_{base_name}_with_text.json"
-        )
-        processed_without_text = os.path.join(
-            output_dir, f"processed_{base_name}_without_text.json"
-        )
-
-        # with_text: 메타데이터 + 카테고리 감성 분석 포함하여 저장
-        with_text_processed = {
-            "search_name": with_text.get("search_name", ""),
-            "total_collected_reviews": with_text.get("total_collected_reviews", 0),
-            "total_text_reviews": with_text.get("total_text_reviews", 0),
-            "total_product": len(product_summaries),
-            "total_rating_distribution": with_text.get("total_rating_distribution", {}),
-            "category_sentiment_analysis": category_sentiment,
-            "data": product_summaries,
-        }
-
-        with open(processed_with_text, "w", encoding="utf-8") as f:
-            json.dump(with_text_processed, f, ensure_ascii=False, indent=2)
-
-        with open(processed_without_text, "w", encoding="utf-8") as f:
-            json.dump(without_text, f, ensure_ascii=False, indent=2)
-
         return {
             "status": "success",
             "file": base_name,
             "product_summaries": product_summaries,
             "review_details": review_details,
+            "category_sentiment": category_sentiment,
         }
 
     except Exception as e:

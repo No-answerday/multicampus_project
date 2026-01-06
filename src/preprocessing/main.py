@@ -207,89 +207,203 @@ def main():
     phase3_time = time.time() - phase3_start
     print(f"\nPhase 3 완료 - 소요 시간: {phase3_time:.2f}초\n")
 
-    # ========== Parquet 파일 생성 ==========
+    # ========== 새로운 Parquet 구조 생성 ==========
     print("=" * 60)
-    print("Parquet 파일 생성 중...")
+    print("새로운 Parquet 구조 생성 중...")
     print("=" * 60)
 
-    # 전역 감성 분석 (피부타입별 단어 빈도, 전체 감성 키워드)
-    # Phase 3에서 수집된 all_reviews를 직접 활용 (파일 재로딩 불필요)
-    print(f"전역 분석 대상 리뷰 수: {len(all_reviews):,}개")
+    # 출력 디렉토리
+    DATA_DIR = "./data/processed_data"
+    DETAILED_STATS_DIR = os.path.join(DATA_DIR, "detailed_stats")
+    PARTITIONED_REVIEWS_DIR = os.path.join(DATA_DIR, "partitioned_reviews")
 
-    # 피부타입별 단어 빈도
-    skin_type_freq = analyze_skin_type_frequency(all_reviews, top_n=20)
-    skin_type_freq_formatted = {
-        skin: [{"word": w, "count": c} for w, c in words]
-        for skin, words in skin_type_freq.items()
-    }
+    os.makedirs(DATA_DIR, exist_ok=True)
+    os.makedirs(DETAILED_STATS_DIR, exist_ok=True)
+    os.makedirs(PARTITIONED_REVIEWS_DIR, exist_ok=True)
 
-    # 전체 감성 키워드
-    from sentiment_analysis import sentiment_tfidf_diff
+    # 1. integrated_products_final.parquet 생성
+    print("\n[1/3] integrated_products_final.parquet 생성 중...")
 
-    pos_overall, neg_overall = sentiment_tfidf_diff(
-        all_reviews, top_n=30, min_doc_freq=20
-    )
-    pos_count = sum(1 for r in all_reviews if r.get("label") == 1)
-    neg_count = sum(1 for r in all_reviews if r.get("label") == 0)
-    tokens_count = sum(
-        1 for r in all_reviews if r.get("tokens") and isinstance(r.get("tokens"), list)
-    )
+    products_final = []
+    for product in all_products:
+        product_id = product.get("product_id")
 
-    overall_sentiment = {
-        "positive_special": pos_overall,
-        "negative_special": neg_overall,
-        "review_count": len(all_reviews),
-        "pos_count": pos_count,
-        "neg_count": neg_count,
-        "tfidf_notna_count": tokens_count,
-    }
+        # 텍스트 유무별 리뷰 통계 계산
+        product_reviews = [r for r in all_reviews if r.get("product_id") == product_id]
 
-    print(f"✓ 피부타입별 단어 빈도: {len(skin_type_freq_formatted)}개 타입")
-    print(f"✓ 전체 긍정 키워드: {len(pos_overall)}개")
-    print(f"✓ 전체 부정 키워드: {len(neg_overall)}개")
-    print(f"  - 긍정 리뷰: {pos_count:,}개")
-    print(f"  - 부정 리뷰: {neg_count:,}개")
+        text_reviews = [r for r in product_reviews if r.get("full_text")]
+        no_text_reviews = [r for r in product_reviews if not r.get("full_text")]
 
-    # 1. 상품 Parquet (벡터 + 전역 분석 결과)
-    if all_products:
-        df_products = pd.DataFrame(all_products)
-
-        # 메타데이터에 전역 분석 추가
-        metadata = {
-            "skin_type_word_frequency": skin_type_freq_formatted,
-            "overall_sentiment_special_words": overall_sentiment,
-        }
-
-        # Parquet 저장 시 메타데이터 포함
-        df_products.to_parquet(
-            PRODUCT_PARQUET,
-            engine="pyarrow",
-            compression="snappy",
-            index=False,
+        avg_rating_with_text = (
+            sum(r.get("score", 0) for r in text_reviews) / len(text_reviews)
+            if text_reviews
+            else 0.0
+        )
+        avg_rating_without_text = (
+            sum(r.get("score", 0) for r in no_text_reviews) / len(no_text_reviews)
+            if no_text_reviews
+            else 0.0
+        )
+        total_reviews = len(product_reviews)
+        text_review_ratio = (
+            len(text_reviews) / total_reviews if total_reviews > 0 else 0.0
         )
 
-        # 메타데이터를 별도 JSON으로 저장
-        meta_path = PRODUCT_PARQUET.replace(".parquet", "_metadata.json")
-        with open(meta_path, "w", encoding="utf-8") as f:
-            json.dump(metadata, f, ensure_ascii=False, indent=2)
+        # top_keywords 추출 (긍정 키워드 상위 5개)
+        sentiment = product.get("sentiment_analysis", {})
+        pos_keywords = sentiment.get("positive_special", [])[:5]
+        top_keywords = [kw.get("word", "") for kw in pos_keywords]
 
-        product_size_mb = os.path.getsize(PRODUCT_PARQUET) / 1024 / 1024
-        print(f"✓ 상품 Parquet 저장: {PRODUCT_PARQUET}")
-        print(f"  - 상품 수: {len(df_products):,}개")
-        print(f"  - 파일 크기: {product_size_mb:.2f} MB")
-        print(f"  - 메타데이터 저장: {meta_path}\n")
+        # product_id에서 카테고리 추출
+        if "_" in product_id:
+            category = "_".join(product_id.split("_")[:-1])
+        else:
+            category = "기타"
 
-    # 2. 리뷰 상세 Parquet (토큰, 벡터 포함)
-    if all_reviews:
-        df_reviews = pd.DataFrame(all_reviews)
+        products_final.append(
+            {
+                "product_id": product_id,
+                "product_name": product.get("product_name"),
+                "brand": product.get("brand"),
+                "category": category,
+                "skin_type": product.get("skin_type", "미분류"),
+                "top_keywords": top_keywords,
+                "product_vector": product.get("product_vector"),
+                "recommend_score": product.get("recommend_score", 0.0),
+                "avg_rating_with_text": avg_rating_with_text,
+                "avg_rating_without_text": avg_rating_without_text,
+                "text_review_ratio": text_review_ratio,
+                "total_reviews": total_reviews,
+            }
+        )
+
+    df_products_final = pd.DataFrame(products_final)
+    integrated_path = os.path.join(DATA_DIR, "integrated_products_final.parquet")
+    df_products_final.to_parquet(
+        integrated_path, engine="pyarrow", compression="snappy", index=False
+    )
+
+    product_size_mb = os.path.getsize(integrated_path) / 1024 / 1024
+    print(f"✓ 저장 완료: {integrated_path}")
+    print(f"  - 상품 수: {len(df_products_final):,}개")
+    print(f"  - 파일 크기: {product_size_mb:.2f} MB")
+
+    # 2. detailed_stats/ 카테고리별 파티션 생성
+    print("\n[2/3] detailed_stats 카테고리별 파티션 생성 중...")
+
+    stats_by_category = {}
+    for product in all_products:
+        product_id = product.get("product_id")
+
+        # product_id에서 카테고리 추출 (예: "선크림_123" -> "선크림")
+        # product_id는 "카테고리_원본ID" 형식 (마지막 언더스코어 기준으로 분리)
+        if "_" in product_id:
+            category = "_".join(product_id.split("_")[:-1])
+        else:
+            category = "기타"
+
+        sentiment = product.get("sentiment_analysis", {})
+
+        # 긍정 키워드
+        for kw in sentiment.get("positive_special", []):
+            stats_by_category.setdefault(category, []).append(
+                {
+                    "product_id": product_id,
+                    "word": kw.get("word"),
+                    "diff": kw.get("diff"),
+                    "pos": kw.get("pos"),
+                    "neg": kw.get("neg"),
+                    "pos_n": kw.get("pos_n"),
+                    "neg_n": kw.get("neg_n"),
+                    "support": kw.get("support"),
+                    "balanced_ratio": kw.get("balanced_ratio"),
+                    "score": kw.get("score"),
+                    "sentiment_type": "positive",
+                }
+            )
+
+        # 부정 키워드
+        for kw in sentiment.get("negative_special", []):
+            stats_by_category.setdefault(category, []).append(
+                {
+                    "product_id": product_id,
+                    "word": kw.get("word"),
+                    "diff": kw.get("diff"),
+                    "pos": kw.get("pos"),
+                    "neg": kw.get("neg"),
+                    "pos_n": kw.get("pos_n"),
+                    "neg_n": kw.get("neg_n"),
+                    "support": kw.get("support"),
+                    "balanced_ratio": kw.get("balanced_ratio"),
+                    "score": kw.get("score"),
+                    "sentiment_type": "negative",
+                }
+            )
+
+    stats_count = 0
+    for category, stats_data in stats_by_category.items():
+        df_stats = pd.DataFrame(stats_data)
+        safe_category = category.replace("/", "_").replace(" ", "_")
+        stats_path = os.path.join(
+            DETAILED_STATS_DIR, f"detailed_stats_category_{safe_category}.parquet"
+        )
+        df_stats.to_parquet(
+            stats_path, engine="pyarrow", compression="snappy", index=False
+        )
+        stats_count += 1
+        print(f"  ✓ {safe_category}: {len(df_stats):,}개 키워드")
+
+    print(f"✓ 총 {stats_count}개 카테고리 파티션 생성 완료")
+
+    # 3. partitioned_reviews/ 카테고리별 파티션 생성
+    print("\n[3/3] partitioned_reviews 카테고리별 파티션 생성 중...")
+
+    # 리뷰를 카테고리별로 그룹화
+    reviews_by_category = {}
+    for review in all_reviews:
+        product_id = review.get("product_id")
+        # product_id에서 카테고리 추출 (예: "선크림_123" -> "선크림")
+        # product_id는 "카테고리_원본ID" 형식 (마지막 언더스코어 기준으로 분리)
+        if "_" in product_id:
+            category = "_".join(product_id.split("_")[:-1])
+        else:
+            category = "기타"
+
+        full_text = review.get("full_text", "")
+        has_text = bool(full_text and full_text.strip())
+
+        reviews_by_category.setdefault(category, []).append(
+            {
+                "product_id": product_id,
+                "full_text": full_text,
+                "title": review.get("title", ""),
+                "has_text": has_text,
+                "label": review.get("label"),
+                "sentiment_score": None,  # 나중에 모델 예측값 추가
+                "word2vec": review.get("word2vec"),
+                "rating": review.get("score"),
+            }
+        )
+
+    reviews_count = 0
+    for category, review_data in reviews_by_category.items():
+        df_reviews = pd.DataFrame(review_data)
+        safe_category = category.replace("/", "_").replace(" ", "_")
+        reviews_path = os.path.join(
+            PARTITIONED_REVIEWS_DIR,
+            f"partitioned_reviews_category_{safe_category}.parquet",
+        )
         df_reviews.to_parquet(
-            REVIEW_PARQUET, engine="pyarrow", compression="snappy", index=False
+            reviews_path, engine="pyarrow", compression="snappy", index=False
         )
 
-        review_size_mb = os.path.getsize(REVIEW_PARQUET) / 1024 / 1024
-        print(f"✓ 리뷰 Parquet 저장: {REVIEW_PARQUET}")
-        print(f"  - 리뷰 수: {len(df_reviews):,}개")
-        print(f"  - 파일 크기: {review_size_mb:.2f} MB")
+        review_size_mb = os.path.getsize(reviews_path) / 1024 / 1024
+        reviews_count += 1
+        print(
+            f"  ✓ {safe_category}: {len(df_reviews):,}개 리뷰 ({review_size_mb:.2f} MB)"
+        )
+
+    print(f"✓ 총 {reviews_count}개 카테고리 파티션 생성 완료")
 
     # ========== 임시 파일 정리 ==========
     print(f"\n임시 토큰 파일 정리 중...")
