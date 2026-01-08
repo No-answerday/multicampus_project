@@ -33,24 +33,35 @@ else:  # Linux
     FONT_PATH = "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"
 
 DATA_DIR = os.path.join("data", "processed_data")
-PRODUCTS_PARQUET = os.path.join(DATA_DIR, "integrated_products_final.parquet")
-CATEGORY_SUMMARY_PARQUET = os.path.join(DATA_DIR, "category_summary.parquet")
+PRODUCTS_DIR = os.path.join(DATA_DIR, "integrated_products_final")
+CATEGORY_SUMMARY_DIR = os.path.join(DATA_DIR, "category_summary")
 REVIEWS_DIR = os.path.join(DATA_DIR, "partitioned_reviews")
 
 
 # Parquet 파일 로딩
-print(f"상품 데이터: {PRODUCTS_PARQUET}")
-print(f"카테고리 통계: {CATEGORY_SUMMARY_PARQUET}")
+print(f"상품 데이터: {PRODUCTS_DIR}")
+print(f"카테고리 통계: {CATEGORY_SUMMARY_DIR}")
 print(f"리뷰 데이터: {REVIEWS_DIR}")
 
-# 상품 데이터 로딩
-df_product = pd.read_parquet(PRODUCTS_PARQUET)
+# 상품 데이터 로딩 (Hive 파티셔닝: category=*/data.parquet)
+product_files = sorted(Path(PRODUCTS_DIR).glob("category=*/data.parquet"))
+all_products_list = []
+for f in product_files:
+    df_p = pd.read_parquet(f)
+    all_products_list.append(df_p)
+df_product = (
+    pd.concat(all_products_list, ignore_index=True)
+    if all_products_list
+    else pd.DataFrame()
+)
 
 # 카테고리 통계 로딩
-df_category_summary = pd.read_parquet(CATEGORY_SUMMARY_PARQUET)
+df_category_summary = pd.read_parquet(
+    os.path.join(CATEGORY_SUMMARY_DIR, "data.parquet")
+)
 
-# 모든 리뷰 데이터 로딩
-review_files = sorted(Path(REVIEWS_DIR).glob("partitioned_reviews_category_*.parquet"))
+# 모든 리뷰 데이터 로딩 (Hive 파티셔닝: category=*/data.parquet)
+review_files = sorted(Path(REVIEWS_DIR).glob("category=*/data.parquet"))
 all_reviews_list = []
 for f in review_files:
     df_r = pd.read_parquet(f)

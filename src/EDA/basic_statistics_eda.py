@@ -13,8 +13,8 @@ from collections import Counter, defaultdict
 from typing import Dict, Any, List
 
 DATA_DIR = Path("data/processed_data")
-PRODUCTS_FILE = DATA_DIR / "integrated_products_final.parquet"
-CATEGORY_SUMMARY_FILE = DATA_DIR / "category_summary.parquet"
+PRODUCTS_DIR = DATA_DIR / "integrated_products_final"
+CATEGORY_SUMMARY_DIR = DATA_DIR / "category_summary"
 REVIEWS_DIR = DATA_DIR / "partitioned_reviews"
 OUTPUT_JSON = Path("data") / "basic_stats_summary.json"
 
@@ -25,21 +25,29 @@ def load_all_data():
     print("데이터 로딩 중...")
     print("=" * 60)
 
-    # 상품 데이터
-    df_products = pd.read_parquet(PRODUCTS_FILE)
+    # 상품 데이터 (Hive 파티셔닝: category=*/data.parquet)
+    product_files = sorted(PRODUCTS_DIR.glob("category=*/data.parquet"))
+    all_products = []
+    for f in product_files:
+        df_p = pd.read_parquet(f)
+        all_products.append(df_p)
+    df_products = (
+        pd.concat(all_products, ignore_index=True) if all_products else pd.DataFrame()
+    )
     print(f"✓ 상품 데이터: {len(df_products):,}개")
 
     # 카테고리 통계
-    df_category = pd.read_parquet(CATEGORY_SUMMARY_FILE)
+    df_category = pd.read_parquet(CATEGORY_SUMMARY_DIR / "data.parquet")
     print(f"✓ 카테고리: {len(df_category):,}개")
 
-    # 리뷰 데이터 (모든 카테고리)
-    review_files = sorted(REVIEWS_DIR.glob("partitioned_reviews_category_*.parquet"))
+    # 리뷰 데이터 (Hive 파티셔닝: category=*/data.parquet)
+    review_files = sorted(REVIEWS_DIR.glob("category=*/data.parquet"))
     all_reviews = []
     for f in review_files:
         df_r = pd.read_parquet(f)
         all_reviews.append(df_r)
-        print(f"  - {f.name}: {len(df_r):,}개 리뷰")
+        category = f.parent.name.replace("category=", "")
+        print(f"  - {category}: {len(df_r):,}개 리뷰")
 
     df_reviews = (
         pd.concat(all_reviews, ignore_index=True) if all_reviews else pd.DataFrame()
