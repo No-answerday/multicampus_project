@@ -45,8 +45,6 @@ def main():
 
     PRE_DATA_DIR = "./data/pre_data"
     PROCESSED_DATA_DIR = "./data/processed_data"
-    PRODUCT_PARQUET = "./data/processed_data/integrated_products_vector.parquet"
-    REVIEW_PARQUET = "./data/processed_data/integrated_reviews_detail.parquet"
 
     print("\n" + "=" * 60)
     print(f"{'최적화된 전처리 파이프라인 시작':^60}")
@@ -128,6 +126,14 @@ def main():
             print("[오류] Word2Vec 모델 학습 실패")
             if VECTORIZER_TYPE == "word2vec":
                 return
+        else:
+            # Word2Vec 모델 저장
+            w2v_model_path = "./models/word2vec_model.model"
+            os.makedirs("./models", exist_ok=True)
+            w2v_model.save(w2v_model_path)
+            print(f"✓ Word2Vec 모델 저장 완료: {w2v_model_path}")
+            print(f"  - 어휘 크기: {len(w2v_model.wv):,}개")
+            print(f"  - 벡터 차원: {w2v_model.vector_size}차원")
 
     if VECTORIZER_TYPE in ["bert", "both"]:
         print("\n" + "=" * 60)
