@@ -442,7 +442,12 @@ def vectorize_file(args):
                     product_vec = np.mean(
                         [rv["vector"] for rv in review_vectors], axis=0
                     )
-                    product_info["product_vector"] = product_vec.tolist()
+
+                    # 벡터 타입에 따라 필드명 결정
+                    if vectorizer_type == "word2vec":
+                        product_info["product_vector_word2vec"] = product_vec.tolist()
+                    else:  # bert
+                        product_info["product_vector_bert"] = product_vec.tolist()
 
                     # 대표 리뷰 선정
                     max_similarity = -1
@@ -454,12 +459,29 @@ def vectorize_file(args):
                             max_similarity = similarity
                             representative_review_id = rv["review_id"]
 
-                    product_info["representative_review_id"] = representative_review_id
-                    product_info["representative_similarity"] = float(max_similarity)
+                    if vectorizer_type == "word2vec":
+                        product_info["representative_review_id_word2vec"] = (
+                            representative_review_id
+                        )
+                        product_info["representative_similarity_word2vec"] = float(
+                            max_similarity
+                        )
+                    else:  # bert
+                        product_info["representative_review_id_bert"] = (
+                            representative_review_id
+                        )
+                        product_info["representative_similarity_bert"] = float(
+                            max_similarity
+                        )
                 else:
-                    product_info["product_vector"] = []
-                    product_info["representative_review_id"] = None
-                    product_info["representative_similarity"] = 0.0
+                    if vectorizer_type == "word2vec":
+                        product_info["product_vector_word2vec"] = []
+                        product_info["representative_review_id_word2vec"] = None
+                        product_info["representative_similarity_word2vec"] = 0.0
+                    else:  # bert
+                        product_info["product_vector_bert"] = []
+                        product_info["representative_review_id_bert"] = None
+                        product_info["representative_similarity_bert"] = 0.0
 
             # 상품별 감성 키워드 분석
             sentiment_result = analyze_product_sentiment(

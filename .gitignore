@@ -1,7 +1,12 @@
 __pycache__/
 data/
+
 *.DS_Store
 # *.json
 *.pkl
 *.parquet
+*.model
+
+
 test.py
+*.joblib

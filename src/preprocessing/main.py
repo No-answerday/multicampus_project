@@ -25,7 +25,7 @@ TEMP_TOKENS_DIR = "./data/temp_tokens"
 # "word2vec": Word2Vec 사용 (기본, 빠름)
 # "bert": BERT 사용 (느리지만 성능 좋음)
 # "both": 둘 다 생성 (word2vec, bert 컬럼 모두 포함)
-VECTORIZER_TYPE = "word2vec"  # 여기를 변경하여 선택
+VECTORIZER_TYPE = "both"  # 여기를 변경하여 선택
 BERT_MODEL_NAME = "klue/bert-base"  # BERT 모델 이름
 
 # ========== 리뷰 필터링 설정 ==========
@@ -296,12 +296,21 @@ def main():
                 "skin_type": product.get("skin_type", "미분류"),
                 "top_keywords": top_keywords,
                 "sentiment_analysis": product.get("sentiment_analysis"),
-                "product_vector": product.get("product_vector")
-                or product.get("product_vector_word2vec"),
-                "representative_review_id": product.get("representative_review_id")
-                or product.get("representative_review_id_word2vec"),
-                "representative_similarity": product.get("representative_similarity")
-                or product.get("representative_similarity_word2vec"),
+                # 벡터 필드 (항상 타입별로 저장)
+                "product_vector_word2vec": product.get("product_vector_word2vec"),
+                "product_vector_bert": product.get("product_vector_bert"),
+                "representative_review_id_word2vec": product.get(
+                    "representative_review_id_word2vec"
+                ),
+                "representative_review_id_bert": product.get(
+                    "representative_review_id_bert"
+                ),
+                "representative_similarity_word2vec": product.get(
+                    "representative_similarity_word2vec"
+                ),
+                "representative_similarity_bert": product.get(
+                    "representative_similarity_bert"
+                ),
                 "recommend_score": product.get("recommend_score", 0.0),
                 # 통계 필드
                 "avg_rating_with_text": avg_rating_with_text,
@@ -522,6 +531,7 @@ def main():
                 "helpful_count": review.get("helpful_count"),
                 "sentiment_score": None,  # 나중에 모델 예측값 추가
                 "word2vec": review.get("word2vec"),
+                "bert": review.get("bert"),
             }
         )
 
