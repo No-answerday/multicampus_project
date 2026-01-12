@@ -21,6 +21,30 @@ from sentiment_analysis import analyze_skin_type_frequency
 # 임시 토큰 저장 디렉토리
 TEMP_TOKENS_DIR = "./data/temp_tokens"
 
+# ========== 실행 환경 설정 ==========
+# "auto": 자동 감지 (Colab이면 순차, 아니면 병렬)
+# "colab": Colab 강제 (순차 처리)
+# "local": 로컬 강제 (병렬 처리)
+EXECUTION_MODE = "auto"  # 여기를 변경하여 선택
+
+
+def detect_environment():
+    """실행 환경 자동 감지"""
+    try:
+        import google.colab
+
+        return "colab"
+    except ImportError:
+        return "local"
+
+
+def get_execution_mode():
+    """실행 모드 결정"""
+    if EXECUTION_MODE == "auto":
+        return detect_environment()
+    return EXECUTION_MODE
+
+
 # ========== 벡터화 방법 설정 ==========
 # "word2vec": Word2Vec 사용 (기본, 빠름)
 # "bert": BERT 사용 (느리지만 성능 좋음)
@@ -35,10 +59,14 @@ MIN_REVIEWS_PER_PRODUCT = 30  # 이 개수 이하의 리뷰를 가진 상품 제
 def main():
     """
     최적화된 전처리 파이프라인:
-    Phase 1: 병렬 전처리 + 토큰화 (1회만)
+    Phase 1: 전처리 + 토큰화 (환경에 따라 병렬/순차)
     Phase 2: Iterator 방식 Word2Vec 학습 (메모리 효율적)
-    Phase 3: 병렬 벡터화 + 대표 리뷰 선정
+    Phase 3: 벡터화 + 대표 리뷰 선정 (환경에 따라 병렬/순차)
     """
+    # 실행 환경 결정
+    exec_mode = get_execution_mode()
+    use_parallel = exec_mode == "local"
+
     # 시작 시간 기록
     start_time = time.time()
     start_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -49,6 +77,9 @@ def main():
     print("\n" + "=" * 60)
     print(f"{'최적화된 전처리 파이프라인 시작':^60}")
     print(f"{'시작 시간: ' + start_datetime:^60}")
+    print(
+        f"{'실행 환경: ' + exec_mode.upper() + ' (' + ('병렬' if use_parallel else '순차') + ')':^60}"
+    )
     print(f"{'벡터화 방법: ' + VECTORIZER_TYPE:^60}")
     print("=" * 60 + "\n")
 
@@ -62,17 +93,14 @@ def main():
     print(f"총 {len(json_files)}개 파일 발견")
     print(f"병렬 처리 워커 수: {MAX_WORKERS}개\n")
 
-    # ========== Phase 1: 병렬 전처리 + 토큰화 ==========
+    # ========== Phase 1: 전처리 + 토큰화 ==========
     print("=" * 60)
-    print("Phase 1: 전처리 및 토큰화 (병렬 처리)")
+    print(f"Phase 1: 전처리 및 토큰화 ({'병렬' if use_parallel else '순차'} 처리)")
     print("=" * 60)
 
     phase1_start = time.time()
-
-    # 임시 디렉토리 생성
     os.makedirs(TEMP_TOKENS_DIR, exist_ok=True)
 
-    # 병렬로 전처리 + 토큰화 실행
     args_list = [
         (
             input_path,
@@ -87,25 +115,40 @@ def main():
     skipped_count = 0
     phase1_results = []
 
-    with Pool(MAX_WORKERS) as pool:
-        for result in tqdm(
-            pool.imap_unordered(preprocess_and_tokenize_file, args_list),
-            total=len(json_files),
-            desc="전처리 및 토큰화",
-            unit="파일",
-        ):
+    if use_parallel:
+        # 병렬 처리 (로컬 환경)
+        with Pool(MAX_WORKERS) as pool:
+            for result in tqdm(
+                pool.imap_unordered(preprocess_and_tokenize_file, args_list),
+                total=len(json_files),
+                desc="전처리 및 토큰화",
+                unit="파일",
+            ):
+                if result["status"] == "skipped":
+                    skipped_count += 1
+                    tqdm.write(f"  [건너뜀] {result['file']}")
+                elif result["status"] == "success":
+                    phase1_results.append(result)
+                    tqdm.write(
+                        f"  [완료] {result['file']} - 토큰: {result['token_count']:,}개"
+                    )
+                else:
+                    tqdm.write(
+                        f"  [에러] {result['file']} - {result.get('error', 'Unknown')}"
+                    )
+    else:
+        # 순차 처리 (Colab 환경 - JPype/Konlpy 충돌 방지)
+        for args in tqdm(args_list, desc="전처리 및 토큰화", unit="파일"):
+            result = preprocess_and_tokenize_file(args)
+
             if result["status"] == "skipped":
                 skipped_count += 1
-                tqdm.write(f"  [건너뜀] {result['file']}")
+                print(f"  [건너뜀] {result['file']}")
             elif result["status"] == "success":
                 phase1_results.append(result)
-                tqdm.write(
-                    f"  [완료] {result['file']} - 토큰: {result['token_count']:,}개"
-                )
+                print(f"  [완료] {result['file']} - 토큰: {result['token_count']:,}개")
             else:
-                tqdm.write(
-                    f"  [에러] {result['file']} - {result.get('error', 'Unknown')}"
-                )
+                print(f"  [에러] {result['file']} - {result.get('error', 'Unknown')}")
 
     phase1_time = time.time() - phase1_start
     print(f"\nPhase 1 완료 - 소요 시간: {phase1_time:.2f}초")
@@ -146,14 +189,15 @@ def main():
     phase2_time = time.time() - phase2_start
     print(f"\nPhase 2 완료 - 소요 시간: {phase2_time:.2f}초\n")
 
-    # ========== Phase 3: 병렬 벡터화 + 대표 리뷰 선정 ==========
+    # ========== Phase 3: 벡터화 + 대표 리뷰 선정 ==========
     print("=" * 60)
-    print("Phase 3: 벡터화 및 대표 리뷰 선정 (병렬 처리)")
+    print(
+        f"Phase 3: 벡터화 및 대표 리뷰 선정 ({'병렬' if use_parallel else '순차'} 처리)"
+    )
     print("=" * 60)
 
     phase3_start = time.time()
 
-    # Phase 1에서 처리된 파일들에 대해 벡터화 실행
     vectorize_args = [
         (
             result["base_name"],
@@ -169,25 +213,41 @@ def main():
     all_products = []
     all_reviews = []
 
-    with Pool(MAX_WORKERS) as pool:
-        for result in tqdm(
-            pool.imap_unordered(vectorize_file, vectorize_args),
-            total=len(vectorize_args),
-            desc="벡터화 및 대표 리뷰 선정",
-            unit="파일",
-        ):
+    if use_parallel:
+        # 병렬 처리 (로컬 환경)
+        with Pool(MAX_WORKERS) as pool:
+            for result in tqdm(
+                pool.imap_unordered(vectorize_file, vectorize_args),
+                total=len(vectorize_args),
+                desc="벡터화 및 대표 리뷰 선정",
+                unit="파일",
+            ):
+                if result["status"] == "success":
+                    all_products.extend(result["product_summaries"])
+                    all_reviews.extend(result["review_details"])
+                    tqdm.write(f"  [완료] {result['file']}")
+                else:
+                    tqdm.write(
+                        f"  [에러] {result['file']} - {result.get('error', 'Unknown')}"
+                    )
+    else:
+        # 순차 처리 (Colab 환경 - CUDA 충돌 방지)
+        for args in tqdm(vectorize_args, desc="벡터화 및 대표 리뷰 선정", unit="파일"):
+            result = vectorize_file(args)
+
             if result["status"] == "success":
                 all_products.extend(result["product_summaries"])
                 all_reviews.extend(result["review_details"])
-                tqdm.write(f"  [완료] {result['file']}")
+                print(f"  [완료] {result['file']}")
             else:
-                tqdm.write(
-                    f"  [에러] {result['file']} - {result.get('error', 'Unknown')}"
-                )
+                print(f"  [에러] {result['file']} - {result.get('error', 'Unknown')}")
+
+    phase3_time = time.time() - phase3_start
+    print(f"\nPhase 3 완료 - 소요 시간: {phase3_time:.2f}초\n")
 
     # 건너뛴 파일의 상품 정보도 로드
     if skipped_count > 0:
-        print(f"\n건너뛴 파일 {skipped_count}개의 데이터 로드 중...")
+        print(f"건너뛴 파일 {skipped_count}개의 데이터 로드 중...")
         for input_path in json_files:
             rel_path = os.path.relpath(input_path, PRE_DATA_DIR)
             rel_dir = os.path.dirname(rel_path)
