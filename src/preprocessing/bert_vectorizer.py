@@ -60,7 +60,7 @@ class BERTVectorizer:
 
         # 모델 추론
         with torch.no_grad():
-            outputs = self.model(**inputs)
+            outputs = self.model(**inputs, return_dict=True)
 
         # [CLS] 토큰의 벡터 사용 (문장 전체 표현)
         cls_embedding = outputs.last_hidden_state[:, 0, :].cpu().numpy()[0]
@@ -103,7 +103,7 @@ class BERTVectorizer:
 
             # 모델 추론
             with torch.no_grad():
-                outputs = self.model(**inputs)
+                outputs = self.model(**inputs, return_dict=True)
 
             # [CLS] 토큰 벡터 추출
             batch_vectors = outputs.last_hidden_state[:, 0, :].cpu().numpy()
@@ -116,17 +116,17 @@ class BERTVectorizer:
         return self.model.config.hidden_size
 
 
-# 싱글톤 인스턴스 (메모리 효율성)
-_bert_vectorizer_instance = None
+# 모델별 인스턴스 캐시 (메모리 효율성)
+_bert_vectorizer_instances = {}
 
 
 def get_bert_vectorizer(model_name: str = "klue/bert-base") -> BERTVectorizer:
     """
-    BERT Vectorizer 싱글톤 인스턴스 반환
+    BERT Vectorizer 인스턴스 반환 (모델별로 캐시)
     """
-    global _bert_vectorizer_instance
+    global _bert_vectorizer_instances
 
-    if _bert_vectorizer_instance is None:
-        _bert_vectorizer_instance = BERTVectorizer(model_name)
+    if model_name not in _bert_vectorizer_instances:
+        _bert_vectorizer_instances[model_name] = BERTVectorizer(model_name)
 
-    return _bert_vectorizer_instance
+    return _bert_vectorizer_instances[model_name]

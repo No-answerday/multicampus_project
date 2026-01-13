@@ -18,9 +18,6 @@ from preprocessing_phases import (
 )
 from sentiment_analysis import analyze_skin_type_frequency
 
-# 임시 토큰 저장 디렉토리
-TEMP_TOKENS_DIR = "./data/temp_tokens"
-
 # ========== 실행 환경 설정 ==========
 # "auto": 자동 감지 (Colab이면 순차, 아니면 병렬)
 # "colab": Colab 강제 (순차 처리)
@@ -31,10 +28,27 @@ EXECUTION_MODE = "auto"  # 여기를 변경하여 선택
 def detect_environment():
     """실행 환경 자동 감지"""
     try:
-        import google.colab
+        # Colab 환경 감지 (여러 방법 시도)
+        import sys
 
-        return "colab"
-    except ImportError:
+        # 방법 1: google.colab 모듈 확인
+        if "google.colab" in sys.modules:
+            return "colab"
+
+        # 방법 2: 직접 import 시도
+        try:
+            import google.colab
+
+            return "colab"
+        except:
+            pass
+
+        # 방법 3: 환경 변수 확인
+        if "COLAB_GPU" in os.environ or "COLAB_TPU_ADDR" in os.environ:
+            return "colab"
+
+        return "local"
+    except:
         return "local"
 
 
@@ -46,11 +60,16 @@ def get_execution_mode():
 
 
 # ========== 벡터화 방법 설정 ==========
-# "word2vec": Word2Vec 사용 (기본, 빠름)
-# "bert": BERT 사용 (느리지만 성능 좋음)
-# "both": 둘 다 생성 (word2vec, bert 컬럼 모두 포함)
-VECTORIZER_TYPE = "both"  # 여기를 변경하여 선택
-BERT_MODEL_NAME = "klue/bert-base"  # BERT 모델 이름
+# 리스트로 여러 모델 동시 사용 가능
+# 예: ["word2vec", "bert"] 또는 ["word2vec", "bert", "roberta", "koelectra"]
+VECTORIZER_TYPE = ["word2vec", "bert", "roberta", "koelectra"]  # 여기를 변경하여 선택
+
+# 모델별 설정
+MODEL_CONFIGS = {
+    "bert": "klue/bert-base",
+    "roberta": "klue/roberta-small",
+    "koelectra": "monologg/koelectra-base-v3-discriminator",
+}
 
 # ========== 리뷰 필터링 설정 ==========
 MIN_REVIEWS_PER_PRODUCT = 30  # 이 개수 이하의 리뷰를 가진 상품 제외
@@ -67,12 +86,28 @@ def main():
     exec_mode = get_execution_mode()
     use_parallel = exec_mode == "local"
 
+    # Transformer 모델 사용 시 순차 처리 강제 (pickle 직렬화 문제)
+    transformer_models_requested = [m for m in VECTORIZER_TYPE if m in MODEL_CONFIGS]
+    if transformer_models_requested and use_parallel:
+        print("[알림] Transformer 모델 사용 시 Phase 3는 순차 처리됩니다 (직렬화 제한)")
+        use_parallel_phase3 = False
+    else:
+        use_parallel_phase3 = use_parallel
+
     # 시작 시간 기록
     start_time = time.time()
     start_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    PRE_DATA_DIR = "./data/pre_data"
-    PROCESSED_DATA_DIR = "./data/processed_data"
+    # 환경별 경로 설정
+    if exec_mode == "colab":
+        BASE_DIR = "/content/data"
+        print("[알림] Colab 환경: /content 로컬 스토리지 사용 (빠른 I/O)")
+    else:
+        BASE_DIR = "./data"
+
+    PRE_DATA_DIR = os.path.join(BASE_DIR, "pre_data")
+    PROCESSED_DATA_DIR = os.path.join(BASE_DIR, "processed_data")
+    TEMP_TOKENS_DIR = os.path.join(BASE_DIR, "temp_tokens")
 
     print("\n" + "=" * 60)
     print(f"{'최적화된 전처리 파이프라인 시작':^60}")
@@ -80,7 +115,8 @@ def main():
     print(
         f"{'실행 환경: ' + exec_mode.upper() + ' (' + ('병렬' if use_parallel else '순차') + ')':^60}"
     )
-    print(f"{'벡터화 방법: ' + VECTORIZER_TYPE:^60}")
+    print(f"{'벡터화 모델: ' + ', '.join(VECTORIZER_TYPE):^60}")
+    print(f"{'데이터 경로: ' + PRE_DATA_DIR:^60}")
     print("=" * 60 + "\n")
 
     # pre_data 디렉토리의 모든 JSON 파일 찾기
@@ -158,33 +194,40 @@ def main():
     # ========== Phase 2: 벡터화 모델 준비 ==========
     phase2_start = time.time()
     w2v_model = None
-    bert_vectorizer = None
+    vectorizers = {}  # 모델별 vectorizer 저장
 
-    if VECTORIZER_TYPE in ["word2vec", "both"]:
+    if "word2vec" in VECTORIZER_TYPE:
         print("\n" + "=" * 60)
         print("Phase 2-1: Word2Vec 모델 학습")
         print("=" * 60)
         w2v_model = train_global_word2vec(TEMP_TOKENS_DIR)
         if not w2v_model:
             print("[오류] Word2Vec 모델 학습 실패")
-            if VECTORIZER_TYPE == "word2vec":
-                return
         else:
             # Word2Vec 모델 저장
-            w2v_model_path = "./models/word2vec_model.model"
-            os.makedirs("./models", exist_ok=True)
+            if exec_mode == "colab":
+                w2v_model_path = "/content/models/word2vec_model.model"
+            else:
+                w2v_model_path = "./models/word2vec_model.model"
+            os.makedirs(os.path.dirname(w2v_model_path), exist_ok=True)
             w2v_model.save(w2v_model_path)
             print(f"✓ Word2Vec 모델 저장 완료: {w2v_model_path}")
             print(f"  - 어휘 크기: {len(w2v_model.wv):,}개")
             print(f"  - 벡터 차원: {w2v_model.vector_size}차원")
 
-    if VECTORIZER_TYPE in ["bert", "both"]:
+    # Transformer 기반 모델들 로딩
+    transformer_models = [m for m in VECTORIZER_TYPE if m in MODEL_CONFIGS]
+    if transformer_models:
         print("\n" + "=" * 60)
-        print("Phase 2-2: BERT 모델 로딩")
+        print(f"Phase 2-2: Transformer 모델 로딩 ({len(transformer_models)}개)")
         print("=" * 60)
         from bert_vectorizer import get_bert_vectorizer
 
-        bert_vectorizer = get_bert_vectorizer(BERT_MODEL_NAME)
+        for model_name in transformer_models:
+            model_path = MODEL_CONFIGS[model_name]
+            print(f"\n{model_name.upper()} 로딩 중... ({model_path})")
+            vectorizers[model_name] = get_bert_vectorizer(model_path)
+            print(f"✓ {model_name.upper()} 로드 완료")
 
     phase2_time = time.time() - phase2_start
     print(f"\nPhase 2 완료 - 소요 시간: {phase2_time:.2f}초\n")
@@ -192,7 +235,7 @@ def main():
     # ========== Phase 3: 벡터화 + 대표 리뷰 선정 ==========
     print("=" * 60)
     print(
-        f"Phase 3: 벡터화 및 대표 리뷰 선정 ({'병렬' if use_parallel else '순차'} 처리)"
+        f"Phase 3: 벡터화 및 대표 리뷰 선정 ({'병렬' if use_parallel_phase3 else '순차'} 처리)"
     )
     print("=" * 60)
 
@@ -204,8 +247,8 @@ def main():
             TEMP_TOKENS_DIR,
             result["output_dir"],
             w2v_model,
-            bert_vectorizer,
-            VECTORIZER_TYPE,
+            vectorizers,  # dict로 전달
+            VECTORIZER_TYPE,  # list로 전달
         )
         for result in phase1_results
     ]
@@ -213,8 +256,11 @@ def main():
     all_products = []
     all_reviews = []
 
-    if use_parallel:
-        # 병렬 처리 (로컬 환경)
+    # 모델별 시간 집계
+    total_model_times = {model_name: 0.0 for model_name in VECTORIZER_TYPE}
+
+    if use_parallel_phase3:
+        # 병렬 처리 (로컬 환경, word2vec만 사용 시)
         with Pool(MAX_WORKERS) as pool:
             for result in tqdm(
                 pool.imap_unordered(vectorize_file, vectorize_args),
@@ -225,53 +271,39 @@ def main():
                 if result["status"] == "success":
                     all_products.extend(result["product_summaries"])
                     all_reviews.extend(result["review_details"])
+                    # 모델별 시간 집계
+                    for model_name, model_time in result.get("model_times", {}).items():
+                        total_model_times[model_name] += model_time
                     tqdm.write(f"  [완료] {result['file']}")
                 else:
                     tqdm.write(
                         f"  [에러] {result['file']} - {result.get('error', 'Unknown')}"
                     )
     else:
-        # 순차 처리 (Colab 환경 - CUDA 충돌 방지)
+        # 순차 처리 (Colab 환경 또는 Transformer 사용 시)
         for args in tqdm(vectorize_args, desc="벡터화 및 대표 리뷰 선정", unit="파일"):
             result = vectorize_file(args)
 
             if result["status"] == "success":
                 all_products.extend(result["product_summaries"])
                 all_reviews.extend(result["review_details"])
+                # 모델별 시간 집계
+                for model_name, model_time in result.get("model_times", {}).items():
+                    total_model_times[model_name] += model_time
                 print(f"  [완료] {result['file']}")
             else:
                 print(f"  [에러] {result['file']} - {result.get('error', 'Unknown')}")
 
     phase3_time = time.time() - phase3_start
-    print(f"\nPhase 3 완료 - 소요 시간: {phase3_time:.2f}초\n")
+    print(f"\nPhase 3 완료 - 소요 시간: {phase3_time:.2f}초")
+    print(f"처리된 상품: {len(all_products):,}개")
+    print(f"처리된 리뷰: {len(all_reviews):,}개")
 
-    # 건너뛴 파일의 상품 정보도 로드
-    if skipped_count > 0:
-        print(f"건너뛴 파일 {skipped_count}개의 데이터 로드 중...")
-        for input_path in json_files:
-            rel_path = os.path.relpath(input_path, PRE_DATA_DIR)
-            rel_dir = os.path.dirname(rel_path)
-            output_dir = os.path.join(PROCESSED_DATA_DIR, rel_dir)
-
-            file_name = os.path.basename(input_path)
-            base_name = os.path.splitext(file_name)[0]
-            if base_name.startswith("result_"):
-                base_name = base_name[7:]
-
-            processed_file = os.path.join(
-                output_dir, f"processed_{base_name}_with_text.json"
-            )
-
-            if os.path.exists(processed_file):
-                try:
-                    with open(processed_file, "r", encoding="utf-8") as f:
-                        existing_data = json.load(f)
-                    all_products.extend(existing_data.get("data", []))
-                except:
-                    pass
-
-    phase3_time = time.time() - phase3_start
-    print(f"\nPhase 3 완료 - 소요 시간: {phase3_time:.2f}초\n")
+    # 모델별 처리 시간 출력
+    print(f"\n[모델별 벡터화 소요 시간]")
+    for model_name in sorted(VECTORIZER_TYPE):
+        model_time = total_model_times.get(model_name, 0.0)
+        print(f"  - {model_name.upper()}: {model_time:.2f}초")
 
     # ========== 새로운 Parquet 구조 생성 ==========
     print("=" * 60)
@@ -279,7 +311,8 @@ def main():
     print("=" * 60)
 
     # 출력 디렉토리 (Hive 파티셔닝 형식)
-    DATA_DIR = "./data/processed_data"
+    # 이미 위에서 PROCESSED_DATA_DIR를 환경에 맞게 설정했으므로 그대로 사용
+    DATA_DIR = PROCESSED_DATA_DIR
     CATEGORY_SUMMARY_DIR = os.path.join(DATA_DIR, "category_summary")
     PRODUCTS_FINAL_DIR = os.path.join(DATA_DIR, "integrated_products_final")
     DETAILED_STATS_DIR = os.path.join(DATA_DIR, "detailed_stats")
@@ -292,6 +325,11 @@ def main():
 
     # 1. integrated_products_final.parquet 생성
     print("\n[1/3] integrated_products_final.parquet 생성 중...")
+
+    if not all_products:
+        print("[경고] all_products가 비어있습니다. Phase 3 결과를 확인하세요.")
+        print("전처리를 처음부터 다시 실행해야 할 수 있습니다.")
+        return
 
     products_final = []
     for product in all_products:
@@ -340,50 +378,47 @@ def main():
         category_path_str = product.get("category_path", "")
         path = category_path_str.split(" > ")[-1] if category_path_str else ""
 
-        products_final.append(
-            {
-                # 원본 product_info 필드
-                "product_id": product_id,
-                "product_name": product.get("product_name"),
-                "brand": product.get("brand"),
-                "category": category,
-                "category_path": category_path_str,
-                "path": path,
-                "price": product.get("price"),
-                "delivery_type": product.get("delivery_type"),
-                "product_url": product.get("product_url"),
-                # 전처리 추가 필드
-                "skin_type": product.get("skin_type", "미분류"),
-                "top_keywords": top_keywords,
-                "sentiment_analysis": product.get("sentiment_analysis"),
-                # 벡터 필드 (항상 타입별로 저장)
-                "product_vector_word2vec": product.get("product_vector_word2vec"),
-                "product_vector_bert": product.get("product_vector_bert"),
-                "representative_review_id_word2vec": product.get(
-                    "representative_review_id_word2vec"
-                ),
-                "representative_review_id_bert": product.get(
-                    "representative_review_id_bert"
-                ),
-                "representative_similarity_word2vec": product.get(
-                    "representative_similarity_word2vec"
-                ),
-                "representative_similarity_bert": product.get(
-                    "representative_similarity_bert"
-                ),
-                "recommend_score": product.get("recommend_score", 0.0),
-                # 통계 필드
-                "avg_rating_with_text": avg_rating_with_text,
-                "avg_rating_without_text": avg_rating_without_text,
-                "text_review_ratio": text_review_ratio,
-                "total_reviews": total_reviews,
-                "rating_1": rating_dist[1],
-                "rating_2": rating_dist[2],
-                "rating_3": rating_dist[3],
-                "rating_4": rating_dist[4],
-                "rating_5": rating_dist[5],
-            }
-        )
+        products_final_dict = {
+            # 원본 product_info 필드
+            "product_id": product_id,
+            "product_name": product.get("product_name"),
+            "brand": product.get("brand"),
+            "category": category,
+            "category_path": category_path_str,
+            "path": path,
+            "price": product.get("price"),
+            "delivery_type": product.get("delivery_type"),
+            "product_url": product.get("product_url"),
+            # 전처리 추가 필드
+            "skin_type": product.get("skin_type", "미분류"),
+            "top_keywords": top_keywords,
+            "sentiment_analysis": product.get("sentiment_analysis"),
+            "recommend_score": product.get("recommend_score", 0.0),
+            # 통계 필드
+            "avg_rating_with_text": avg_rating_with_text,
+            "avg_rating_without_text": avg_rating_without_text,
+            "text_review_ratio": text_review_ratio,
+            "total_reviews": total_reviews,
+            "rating_1": rating_dist[1],
+            "rating_2": rating_dist[2],
+            "rating_3": rating_dist[3],
+            "rating_4": rating_dist[4],
+            "rating_5": rating_dist[5],
+        }
+
+        # 벡터 필드 동적 추가 (word2vec, bert, roberta, koelectra)
+        for model_name in VECTORIZER_TYPE:
+            products_final_dict[f"product_vector_{model_name}"] = product.get(
+                f"product_vector_{model_name}"
+            )
+            products_final_dict[f"representative_review_id_{model_name}"] = product.get(
+                f"representative_review_id_{model_name}"
+            )
+            products_final_dict[f"representative_similarity_{model_name}"] = (
+                product.get(f"representative_similarity_{model_name}")
+            )
+
+        products_final.append(products_final_dict)
 
     df_products_final = pd.DataFrame(products_final)
 
@@ -571,29 +606,31 @@ def main():
         full_text = review.get("full_text", "")
         has_text = bool(full_text and full_text.strip())
 
-        reviews_by_category.setdefault(category, []).append(
-            {
-                "product_id": product_id,
-                "id": review.get("id"),
-                "full_text": full_text,
-                "title": review.get("title", ""),
-                "content": review.get("content", ""),
-                "has_text": has_text,
-                "score": review.get("score"),
-                "label": review.get("label"),
-                "tokens": review.get("tokens"),
-                "char_length": review.get("char_length"),
-                "token_count": review.get("token_count"),
-                "date": review.get("date"),
-                "collected_at": review.get("collected_at"),
-                "nickname": review.get("nickname"),
-                "has_image": review.get("has_image"),
-                "helpful_count": review.get("helpful_count"),
-                "sentiment_score": None,  # 나중에 모델 예측값 추가
-                "word2vec": review.get("word2vec"),
-                "bert": review.get("bert"),
-            }
-        )
+        review_dict = {
+            "product_id": product_id,
+            "id": review.get("id"),
+            "full_text": full_text,
+            "title": review.get("title", ""),
+            "content": review.get("content", ""),
+            "has_text": has_text,
+            "score": review.get("score"),
+            "label": review.get("label"),
+            "tokens": review.get("tokens"),
+            "char_length": review.get("char_length"),
+            "token_count": review.get("token_count"),
+            "date": review.get("date"),
+            "collected_at": review.get("collected_at"),
+            "nickname": review.get("nickname"),
+            "has_image": review.get("has_image"),
+            "helpful_count": review.get("helpful_count"),
+            "sentiment_score": None,  # 나중에 모델 예측값 추가
+        }
+
+        # 벡터 필드 동적 추가
+        for model_name in VECTORIZER_TYPE:
+            review_dict[model_name] = review.get(model_name)
+
+        reviews_by_category.setdefault(category, []).append(review_dict)
 
     reviews_count = 0
     for category, review_data in reviews_by_category.items():
@@ -639,6 +676,55 @@ def main():
         f"{'Phase 1: ' + f'{phase1_time:.1f}초 | Phase 2: {phase2_time:.1f}초 | Phase 3: {phase3_time:.1f}초':^60}"
     )
     print("=" * 60 + "\n")
+
+    # ========== Colab: Google Drive 백업 ==========
+    if exec_mode == "colab":
+        print("=" * 60)
+        print("Google Drive 백업 시작")
+        print("=" * 60)
+        
+        try:
+            from google.colab import drive
+            
+            # Drive 마운트 (이미 마운트되어 있으면 스킵)
+            if not os.path.exists("/content/drive"):
+                print("\nDrive 마운트 중...")
+                drive.mount('/content/drive')
+            
+            import shutil
+            
+            # 백업 경로 설정
+            drive_backup_base = "/content/drive/MyDrive/multicampus_project_backup"
+            drive_processed = os.path.join(drive_backup_base, "processed_data")
+            drive_models = os.path.join(drive_backup_base, "models")
+            
+            # processed_data 백업
+            print(f"\n처리된 데이터를 Drive로 백업 중...")
+            if os.path.exists(PROCESSED_DATA_DIR):
+                shutil.copytree(PROCESSED_DATA_DIR, drive_processed, dirs_exist_ok=True)
+                backup_size = sum(
+                    os.path.getsize(os.path.join(dirpath, filename))
+                    for dirpath, _, filenames in os.walk(drive_processed)
+                    for filename in filenames
+                ) / 1024 / 1024
+                print(f"✓ 데이터 백업 완료: {drive_processed}")
+                print(f"  - 크기: {backup_size:.1f} MB")
+            
+            # models 백업
+            local_models = "/content/models"
+            if os.path.exists(local_models):
+                print(f"\n모델을 Drive로 백업 중...")
+                shutil.copytree(local_models, drive_models, dirs_exist_ok=True)
+                print(f"✓ 모델 백업 완료: {drive_models}")
+            
+            print("\n" + "=" * 60)
+            print("Drive 백업 완료!")
+            print(f"백업 위치: {drive_backup_base}")
+            print("=" * 60 + "\n")
+            
+        except Exception as e:
+            print(f"\n[경고] Drive 백업 실패: {e}")
+            print("세션 종료 시 /content 데이터가 삭제될 수 있습니다.")
 
 
 if __name__ == "__main__":

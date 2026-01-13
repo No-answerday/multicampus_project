@@ -274,18 +274,20 @@ def vectorize_file(args):
     Phase 3: 저장된 토큰을 재사용하여 벡터화 + 대표 리뷰 선정 (병렬 실행)
     - JSON: 상품 요약 정보만 저장 (대표 벡터 포함)
     - 리뷰 상세 정보는 반환하여 Parquet로 통합 저장
-    - vectorizer_type에 따라 word2vec, bert, 또는 둘 다 생성
+    - vectorizer_type 리스트에 따라 여러 모델의 벡터 생성
     """
     (
         base_name,
         temp_tokens_dir,
         output_dir,
         w2v_model,
-        bert_vectorizer,
-        vectorizer_type,
+        vectorizers,  # dict: {model_name: vectorizer}
+        vectorizer_type,  # list: ["word2vec", "bert", "roberta", ...]
     ) = args
 
     try:
+        import time
+
         # 저장된 토큰화 데이터 로드
         tokenized_file = os.path.join(temp_tokens_dir, f"{base_name}_tokenized.pkl")
         with open(tokenized_file, "rb") as f:
@@ -299,9 +301,13 @@ def vectorize_file(args):
         product_summaries = []
         review_details = []
 
+        # 모델별 처리 시간 측정
+        model_times = {model_name: 0.0 for model_name in vectorizer_type}
+
         for product_idx, product in enumerate(with_text.get("data", [])):
-            review_vectors_w2v = []  # Word2Vec 벡터 리스트
-            review_vectors_bert = []  # BERT 벡터 리스트
+            # 모델별 벡터 리스트 저장
+            review_vectors_by_model = {model_name: [] for model_name in vectorizer_type}
+
             product_tokens = tokenized_data[product_idx]
             product_info = product.get("product_info", {})
 
@@ -341,147 +347,74 @@ def vectorize_file(args):
                     "helpful_count": review.get("helpful_count"),
                 }
 
-                # Word2Vec 벡터 생성
-                if vectorizer_type in ["word2vec", "both"] and w2v_model:
-                    word_vectors = [
-                        w2v_model.wv[w] for w in tokens if w in w2v_model.wv
-                    ]
-                    if word_vectors:
-                        w2v_vec = np.mean(word_vectors, axis=0)
+                # 각 모델별로 벡터 생성
+                for model_name in vectorizer_type:
+                    model_start = time.time()
+
+                    if model_name == "word2vec" and w2v_model:
+                        # Word2Vec 벡터 생성
+                        word_vectors = [
+                            w2v_model.wv[w] for w in tokens if w in w2v_model.wv
+                        ]
+                        if word_vectors:
+                            vec = np.mean(word_vectors, axis=0)
+                        else:
+                            vec = np.zeros(100)
+
+                        review_detail[model_name] = vec.tolist()
+                        review_vectors_by_model[model_name].append(
+                            {
+                                "vector": vec,
+                                "review_id": review.get("id"),
+                                "review_idx": review_idx,
+                            }
+                        )
+                    elif model_name in vectorizers:
+                        # Transformer 기반 모델 (BERT, RoBERTa, KoELECTRA 등)
+                        vec = vectorizers[model_name].encode(full_text)
+                        review_detail[model_name] = vec.tolist()
+                        review_vectors_by_model[model_name].append(
+                            {
+                                "vector": vec,
+                                "review_id": review.get("id"),
+                                "review_idx": review_idx,
+                            }
+                        )
                     else:
-                        w2v_vec = np.zeros(100)
+                        review_detail[model_name] = None
 
-                    review_detail["word2vec"] = w2v_vec.tolist()
-                    review_vectors_w2v.append(
-                        {
-                            "vector": w2v_vec,
-                            "review_id": review.get("id"),
-                            "review_idx": review_idx,
-                        }
-                    )
-                else:
-                    review_detail["word2vec"] = None
-
-                # BERT 벡터 생성
-                if vectorizer_type in ["bert", "both"] and bert_vectorizer:
-                    bert_vec = bert_vectorizer.encode(full_text)
-                    review_detail["bert"] = bert_vec.tolist()
-
-                    review_vectors_bert.append(
-                        {
-                            "vector": bert_vec,
-                            "review_id": review.get("id"),
-                            "review_idx": review_idx,
-                        }
-                    )
-                else:
-                    review_detail["bert"] = None
+                    model_times[model_name] += time.time() - model_start
 
                 review_details.append(review_detail)
 
-            # 상품 대표 벡터 생성
-            # both일 때는 word2vec과 bert를 별도로 저장
-            if vectorizer_type == "both":
-                # Word2Vec 기반 상품 벡터
-                if review_vectors_w2v:
-                    product_vec_w2v = np.mean(
-                        [rv["vector"] for rv in review_vectors_w2v], axis=0
-                    )
-                    product_info["product_vector_word2vec"] = product_vec_w2v.tolist()
-
-                    # Word2Vec 기반 대표 리뷰
-                    max_sim_w2v = -1
-                    rep_id_w2v = None
-                    for rv in review_vectors_w2v:
-                        sim = cosine_similarity(product_vec_w2v, rv["vector"])
-                        if sim > max_sim_w2v:
-                            max_sim_w2v = sim
-                            rep_id_w2v = rv["review_id"]
-
-                    product_info["representative_review_id_word2vec"] = rep_id_w2v
-                    product_info["representative_similarity_word2vec"] = float(
-                        max_sim_w2v
-                    )
-                else:
-                    product_info["product_vector_word2vec"] = []
-                    product_info["representative_review_id_word2vec"] = None
-                    product_info["representative_similarity_word2vec"] = 0.0
-
-                # BERT 기반 상품 벡터
-                if review_vectors_bert:
-                    product_vec_bert = np.mean(
-                        [rv["vector"] for rv in review_vectors_bert], axis=0
-                    )
-                    product_info["product_vector_bert"] = product_vec_bert.tolist()
-
-                    # BERT 기반 대표 리뷰
-                    max_sim_bert = -1
-                    rep_id_bert = None
-                    for rv in review_vectors_bert:
-                        sim = cosine_similarity(product_vec_bert, rv["vector"])
-                        if sim > max_sim_bert:
-                            max_sim_bert = sim
-                            rep_id_bert = rv["review_id"]
-
-                    product_info["representative_review_id_bert"] = rep_id_bert
-                    product_info["representative_similarity_bert"] = float(max_sim_bert)
-                else:
-                    product_info["product_vector_bert"] = []
-                    product_info["representative_review_id_bert"] = None
-                    product_info["representative_similarity_bert"] = 0.0
-
-            # word2vec 또는 bert만 사용하는 경우
-            else:
-                review_vectors = (
-                    review_vectors_w2v
-                    if vectorizer_type == "word2vec"
-                    else review_vectors_bert
-                )
+            # 각 모델별 상품 대표 벡터 생성
+            for model_name in vectorizer_type:
+                review_vectors = review_vectors_by_model[model_name]
 
                 if review_vectors:
+                    # 상품 벡터 = 리뷰 벡터들의 평균
                     product_vec = np.mean(
                         [rv["vector"] for rv in review_vectors], axis=0
                     )
+                    product_info[f"product_vector_{model_name}"] = product_vec.tolist()
 
-                    # 벡터 타입에 따라 필드명 결정
-                    if vectorizer_type == "word2vec":
-                        product_info["product_vector_word2vec"] = product_vec.tolist()
-                    else:  # bert
-                        product_info["product_vector_bert"] = product_vec.tolist()
-
-                    # 대표 리뷰 선정
-                    max_similarity = -1
-                    representative_review_id = None
-
+                    # 대표 리뷰 선정 (상품 벡터와 가장 유사한 리뷰)
+                    max_sim = -1
+                    rep_id = None
                     for rv in review_vectors:
-                        similarity = cosine_similarity(product_vec, rv["vector"])
-                        if similarity > max_similarity:
-                            max_similarity = similarity
-                            representative_review_id = rv["review_id"]
+                        sim = cosine_similarity(product_vec, rv["vector"])
+                        if sim > max_sim:
+                            max_sim = sim
+                            rep_id = rv["review_id"]
 
-                    if vectorizer_type == "word2vec":
-                        product_info["representative_review_id_word2vec"] = (
-                            representative_review_id
-                        )
-                        product_info["representative_similarity_word2vec"] = float(
-                            max_similarity
-                        )
-                    else:  # bert
-                        product_info["representative_review_id_bert"] = (
-                            representative_review_id
-                        )
-                        product_info["representative_similarity_bert"] = float(
-                            max_similarity
-                        )
+                    product_info[f"representative_review_id_{model_name}"] = rep_id
+                    product_info[f"representative_similarity_{model_name}"] = float(
+                        max_sim
+                    )
                 else:
-                    if vectorizer_type == "word2vec":
-                        product_info["product_vector_word2vec"] = []
-                        product_info["representative_review_id_word2vec"] = None
-                        product_info["representative_similarity_word2vec"] = 0.0
-                    else:  # bert
-                        product_info["product_vector_bert"] = []
-                        product_info["representative_review_id_bert"] = None
-                        product_info["representative_similarity_bert"] = 0.0
+                    product_info[f"product_vector_{model_name}"] = []
+                    product_info[f"representative_review_id_{model_name}"] = None
+                    product_info[f"representative_similarity_{model_name}"] = 0.0
 
             # 상품별 감성 키워드 분석
             sentiment_result = analyze_product_sentiment(
@@ -513,8 +446,12 @@ def vectorize_file(args):
                     "nickname": review.get("nickname"),
                     "has_image": review.get("has_image"),
                     "helpful_count": review.get("helpful_count"),
-                    "word2vec": None,
                 }
+
+                # 모든 모델에 대해 None 설정
+                for model_name in vectorizer_type:
+                    review_detail[model_name] = None
+
                 review_details.append(review_detail)
 
         # 카테고리별 감성 키워드 분석
@@ -528,6 +465,7 @@ def vectorize_file(args):
             "product_summaries": product_summaries,
             "review_details": review_details,
             "category_sentiment": category_sentiment,
+            "model_times": model_times,  # 모델별 처리 시간 추가
         }
 
     except Exception as e:

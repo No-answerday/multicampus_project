@@ -76,96 +76,96 @@ def load_review_data(partitioned_reviews_dir):
 
 def prepare_training_data(reviews):
     print("\n학습 데이터 준비 중...")
-    X_word2vec = []
-    X_bert = []
-    y_word2vec = []
-    y_bert = []
 
-    # 데이터 샘플로 구조 확인 (상세하게)
+    # 사용 가능한 모델 타입 자동 감지
+    available_models = set()
+    if reviews:
+        sample = reviews[0]
+        for key in sample.keys():
+            # word2vec, bert, roberta, koelectra 등 벡터 필드 감지
+            if (
+                key in ["word2vec", "bert", "roberta", "koelectra"]
+                and sample.get(key) is not None
+            ):
+                available_models.add(key)
+
+    print(f"\n[감지된 모델 타입]")
+    print(f"  - 사용 가능: {sorted(available_models)}")
+
+    # 모델별 데이터 저장
+    model_data = {model: {"X": [], "y": []} for model in available_models}
+
+    # 데이터 샘플로 구조 확인
     if reviews:
         sample = reviews[0]
         print(f"\n[데이터 구조 확인]")
         print(f"  - 전체 키: {list(sample.keys())}")
         print(f"  - label 존재: {'label' in sample}, 값: {sample.get('label')}")
-        print(f"  - word2vec 존재: {'word2vec' in sample}")
-        print(f"  - bert 존재: {'bert' in sample}")
 
-        w2v_val = sample.get("word2vec")
-        bert_val = sample.get("bert")
-
-        if w2v_val is not None:
-            print(
-                f"  - word2vec 타입: {type(w2v_val)}, 길이: {len(w2v_val) if hasattr(w2v_val, '__len__') else 'N/A'}"
-            )
-        if bert_val is not None:
-            print(
-                f"  - bert 타입: {type(bert_val)}, 길이: {len(bert_val) if hasattr(bert_val, '__len__') else 'N/A'}"
-            )
+        for model_name in available_models:
+            val = sample.get(model_name)
+            if val is not None:
+                print(
+                    f"  - {model_name} 타입: {type(val)}, 길이: {len(val) if hasattr(val, '__len__') else 'N/A'}"
+                )
 
         # 처음 100개 샘플에서 통계
         label_count = sum(1 for r in reviews[:100] if pd.notna(r.get("label")))
-        w2v_count = sum(1 for r in reviews[:100] if r.get("word2vec") is not None)
-        bert_count = sum(1 for r in reviews[:100] if r.get("bert") is not None)
         print(f"\n[처음 100개 샘플 확인]")
         print(f"  - label 있는 리뷰: {label_count}개")
-        print(f"  - word2vec 있는 리뷰: {w2v_count}개")
-        print(f"  - bert 있는 리뷰: {bert_count}개")
+        for model_name in available_models:
+            count = sum(1 for r in reviews[:100] if r.get(model_name) is not None)
+            print(f"  - {model_name} 있는 리뷰: {count}개")
 
     # 각 벡터 타입별로 데이터 수집
     for review in reviews:
-        w2v = review.get("word2vec")
-        bert = review.get("bert")
         label = review.get("label")
 
         # label이 유효한지 확인
         if not pd.notna(label):
             continue
 
-        # word2vec 벡터 수집
-        if w2v is not None and isinstance(w2v, (list, np.ndarray)) and len(w2v) > 0:
-            X_word2vec.append(np.array(w2v))
-            y_word2vec.append(int(label))
-
-        # bert 벡터 수집
-        if bert is not None and isinstance(bert, (list, np.ndarray)) and len(bert) > 0:
-            X_bert.append(np.array(bert))
-            y_bert.append(int(label))
+        # 각 모델의 벡터 수집
+        for model_name in available_models:
+            vec = review.get(model_name)
+            if vec is not None and isinstance(vec, (list, np.ndarray)) and len(vec) > 0:
+                model_data[model_name]["X"].append(np.array(vec))
+                model_data[model_name]["y"].append(int(label))
 
     # 결과 출력
-    w2v_count = len(y_word2vec)
-    bert_count = len(y_bert)
+    results = {}
+    for model_name in sorted(available_models):
+        X = model_data[model_name]["X"]
+        y = model_data[model_name]["y"]
+        count = len(y)
 
-    print(f"\n✓ Word2Vec 데이터: {w2v_count:,}개")
-    if w2v_count > 0:
-        pos = sum(y_word2vec)
-        neg = w2v_count - pos
-        print(f"  - 긍정: {pos:,}개 ({pos/w2v_count*100:.1f}%)")
-        print(f"  - 부정: {neg:,}개 ({neg/w2v_count*100:.1f}%)")
-        print(f"  - 벡터 차원: {len(X_word2vec[0])}")
+        print(f"\n✓ {model_name.upper()} 데이터: {count:,}개")
+        if count > 0:
+            pos = sum(y)
+            neg = count - pos
+            print(f"  - 긍정: {pos:,}개 ({pos/count*100:.1f}%)")
+            print(f"  - 부정: {neg:,}개 ({neg/count*100:.1f}%)")
+            print(f"  - 벡터 차원: {len(X[0])}")
+            results[model_name] = (np.array(X), np.array(y))
+        else:
+            results[model_name] = (np.array([]), np.array([]))
 
-    print(f"\n✓ BERT 데이터: {bert_count:,}개")
-    if bert_count > 0:
-        pos = sum(y_bert)
-        neg = bert_count - pos
-        print(f"  - 긍정: {pos:,}개 ({pos/bert_count*100:.1f}%)")
-        print(f"  - 부정: {neg:,}개 ({neg/bert_count*100:.1f}%)")
-        print(f"  - 벡터 차원: {len(X_bert[0])}")
-
-    return (
-        np.array(X_word2vec) if X_word2vec else np.array([]),
-        np.array(y_word2vec) if y_word2vec else np.array([]),
-        np.array(X_bert) if X_bert else np.array([]),
-        np.array(y_bert) if y_bert else np.array([]),
-    )
+    return results
 
 
 def train_model(X_train, y_train):
     print("\n모델 학습 중...")
+    import time
+
+    start_time = time.time()
+
     # 클래스 불균형 대응을 위해 class_weight='balanced' 설정
     model = LogisticRegression(max_iter=1000, random_state=42, class_weight="balanced")
     model.fit(X_train, y_train)
-    print("✓ 모델 학습 완료")
-    return model
+
+    train_time = time.time() - start_time
+    print(f"✓ 모델 학습 완료 ({train_time:.1f}초)")
+    return model, train_time
 
 
 def evaluate_model(
@@ -390,6 +390,15 @@ Sensitivity: {tp/(tp+fn):.4f}"""
         f1_custom = 2 * prec * rec / (prec + rec) if (prec + rec) > 0 else 0
         print(f"{threshold:>10.2f} {prec:>10.4f} {rec:>10.4f} {f1_custom:>10.4f}")
 
+    # 성능 메트릭 반환
+    return {
+        "accuracy": accuracy,
+        "f1": f1,
+        "mcc": mcc,
+        "auc": roc_auc,
+        "avg_precision": avg_precision,
+    }
+
 
 def precision_score_custom(y_true, y_pred):
     tp = np.sum((y_true == 1) & (y_pred == 1))
@@ -420,80 +429,101 @@ def main():
         print("[중단] 로드된 리뷰 데이터가 없습니다.")
         return
 
-    # 2. 학습 데이터 준비 (word2vec과 bert 각각)
-    X_w2v, y_w2v, X_bert, y_bert = prepare_training_data(reviews)
+    # 2. 학습 데이터 준비 (모든 모델 자동 감지)
+    model_data = prepare_training_data(reviews)
 
-    has_word2vec = X_w2v.size > 0
-    has_bert = X_bert.size > 0
-
-    if not has_word2vec and not has_bert:
+    if not model_data:
         print("\n[중단] 학습 가능한 데이터가 없습니다.")
         return
 
-    # 3. Word2Vec 모델 학습
-    if has_word2vec:
-        print("\n" + "=" * 70)
-        print("Word2Vec 기반 모델 학습")
-        print("=" * 70)
+    # 성능 비교를 위한 결과 저장
+    performance_results = []
+
+    # 3. 각 모델별로 학습 및 평가
+    for model_name in sorted(model_data.keys()):
+        X, y = model_data[model_name]
+
+        if X.size == 0:
+            print(f"\n[건너뜀] {model_name.upper()}: 데이터 없음")
+            continue
+
+        print("\n" + "=" * 100)
+        print(f"{model_name.upper()} 기반 모델 학습")
+        print("=" * 100)
 
         print("\n데이터 분할 중...")
         X_train, X_test, y_train, y_test = train_test_split(
-            X_w2v, y_w2v, test_size=0.2, random_state=42, stratify=y_w2v
+            X, y, test_size=0.2, random_state=42, stratify=y
         )
         print(f"✓ 훈련: {len(X_train):,}개 / 테스트: {len(X_test):,}개")
 
-        model_w2v = train_model(X_train, y_train)
-        evaluate_model(
-            model_w2v,
+        # 모델 학습
+        model, train_time = train_model(X_train, y_train)
+
+        # 모델 평가
+        performance = evaluate_model(
+            model,
             X_test,
             y_test,
             MODEL_OUTPUT_DIR,
-            model_name="word2vec",
+            model_name=model_name,
             X_train=X_train,
             y_train=y_train,
         )
 
+        # 성능 결과 저장
+        performance["model_name"] = model_name
+        performance["train_time"] = train_time
+        performance_results.append(performance)
+
+        # 모델 저장
         model_path = os.path.join(
-            MODEL_OUTPUT_DIR, "logistic_regression_sentiment_word2vec.joblib"
+            MODEL_OUTPUT_DIR, f"logistic_regression_sentiment_{model_name}.joblib"
         )
-        joblib.dump(model_w2v, model_path)
+        joblib.dump(model, model_path)
         print(f"\n✓ 모델 저장 완료: {model_path}")
 
-    # 4. BERT 모델 학습
-    if has_bert:
-        print("\n" + "=" * 70)
-        print("BERT 기반 모델 학습")
-        print("=" * 70)
+    # 4. 성능 비교 표 출력
+    if performance_results:
+        print("\n" + "=" * 90)
+        print("모델 성능 비교")
+        print("=" * 90)
 
-        print("\n데이터 분할 중...")
-        X_train, X_test, y_train, y_test = train_test_split(
-            X_bert, y_bert, test_size=0.2, random_state=42, stratify=y_bert
-        )
-        print(f"✓ 훈련: {len(X_train):,}개 / 테스트: {len(X_test):,}개")
+        # 헤더
+        header = f"{'Model':<12} {'Accuracy':>9} {'F1-Score':>9} {'AUC':>9} {'MCC':>9} {'Train Time':>12}"
+        print(header)
+        print("-" * 90)
 
-        model_bert = train_model(X_train, y_train)
-        evaluate_model(
-            model_bert,
-            X_test,
-            y_test,
-            MODEL_OUTPUT_DIR,
-            model_name="bert",
-            X_train=X_train,
-            y_train=y_train,
-        )
+        # 각 모델 결과
+        for result in performance_results:
+            row = (
+                f"{result['model_name']:<12} "
+                f"{result['accuracy']:>9.4f} "
+                f"{result['f1']:>9.4f} "
+                f"{result['auc']:>9.4f} "
+                f"{result['mcc']:>9.4f} "
+                f"{result['train_time']:>11.1f}s"
+            )
+            print(row)
 
-        model_path = os.path.join(
-            MODEL_OUTPUT_DIR, "logistic_regression_sentiment_bert.joblib"
-        )
-        joblib.dump(model_bert, model_path)
-        print(f"\n✓ 모델 저장 완료: {model_path}")
+        # 최고 성능 모델 표시
+        best_acc = max(performance_results, key=lambda x: x["accuracy"])
+        best_f1 = max(performance_results, key=lambda x: x["f1"])
+        best_auc = max(performance_results, key=lambda x: x["auc"])
+
+        print("\n" + "-" * 90)
+        print("최고 성능:")
+        print(f"  - Accuracy: {best_acc['model_name']} ({best_acc['accuracy']:.4f})")
+        print(f"  - F1-Score: {best_f1['model_name']} ({best_f1['f1']:.4f})")
+        print(f"  - AUC:      {best_auc['model_name']} ({best_auc['auc']:.4f})")
+        print("=" * 90)
 
     print("\n" + "=" * 70)
     print("학습 완료!")
-    if has_word2vec:
-        print("  - Word2Vec 모델: logistic_regression_sentiment_word2vec.joblib")
-    if has_bert:
-        print("  - BERT 모델: logistic_regression_sentiment_bert.joblib")
+    for result in performance_results:
+        print(
+            f"  - {result['model_name'].upper()} 모델: logistic_regression_sentiment_{result['model_name']}.joblib"
+        )
     print("=" * 70)
 
 
