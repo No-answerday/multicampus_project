@@ -6,7 +6,8 @@ data/
 *.pkl
 *.parquet
 *.model
-
+*.log
+*.png
 
 test.py
 *.joblib

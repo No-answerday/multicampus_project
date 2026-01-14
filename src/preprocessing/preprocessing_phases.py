@@ -283,6 +283,7 @@ def vectorize_file(args):
         w2v_model,
         vectorizers,  # dict: {model_name: vectorizer}
         vectorizer_type,  # list: ["word2vec", "bert", "roberta", ...]
+        batch_size,  # int or None: 배치 사이즈 (테스트용)
     ) = args
 
     try:
@@ -382,11 +383,14 @@ def vectorize_file(args):
 
             # Transformer 모델 벡터 생성 (배치 처리)
             transformer_models = [m for m in vectorizer_type if m in vectorizers]
+
             for model_name in transformer_models:
                 model_start = time.time()
 
-                # 배치로 한 번에 벡터화
-                vectors = vectorizers[model_name].encode_batch(full_texts)
+                # 배치로 한 번에 벡터화 (batch_size 파라미터 사용)
+                vectors = vectorizers[model_name].encode_batch(
+                    full_texts, batch_size=batch_size
+                )
 
                 for idx, (info, vec) in enumerate(zip(review_infos, vectors)):
                     info["review_detail"][model_name] = vec.tolist()

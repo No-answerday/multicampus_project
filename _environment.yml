@@ -15,7 +15,7 @@ dependencies:
   - pip
   - pip:
       - gensim
-      - konlpy
+      - kiwipiepy
       - selenium
       - undetected-chromedriver
       - beautifulsoup4

@@ -37,11 +37,11 @@ class BERTVectorizer:
             # GPU 종류별 최적 배치 사이즈 설정
             gpu_name = torch.cuda.get_device_name(0)
             if "A100" in gpu_name:
-                self.default_batch_size = 1024
+                self.default_batch_size = 64
             elif "T4" in gpu_name:
-                self.default_batch_size = 256
+                self.default_batch_size = 32
             else:
-                self.default_batch_size = 128
+                self.default_batch_size = 16
 
             print(f"✓ BERT 모델 로딩 완료")
             print(f"  - Device: {gpu_name}")
