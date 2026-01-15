@@ -5,6 +5,7 @@
 """
 
 import os
+import sys
 import pandas as pd
 import torch
 import glob
@@ -18,6 +19,10 @@ from transformers import (
 from datasets import Dataset
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
+
+# utils 모듈 import
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from utils.environment import get_execution_mode
 
 # ========== 설정 ==========
 MODEL_CONFIGS = {
@@ -37,11 +42,22 @@ MAX_LENGTH = 512
 TEST_SIZE = 0.2
 RANDOM_SEED = 42
 
-# 경로 설정
-DATA_DIR = "./data/processed_data"
+# 환경별 경로 설정
+exec_mode = get_execution_mode("auto")
+
+if exec_mode == "colab":
+    BASE_DIR = "/content"
+    DATA_DIR = "/content/data/processed_data"
+    OUTPUT_BASE_DIR = "/content/models/fine_tuned"
+    LOGS_DIR = "/content/logs/fine_tuning"
+    print("[알림] Colab 환경: /content 로컬 스토리지 사용 (빠른 I/O)")
+else:
+    BASE_DIR = "./data"
+    DATA_DIR = "./data/processed_data"
+    OUTPUT_BASE_DIR = "./models/fine_tuned"
+    LOGS_DIR = "./logs/fine_tuning"
+
 REVIEWS_DIR = os.path.join(DATA_DIR, "partitioned_reviews")
-OUTPUT_BASE_DIR = "./models/fine_tuned"
-LOGS_DIR = "./logs/fine_tuning"
 
 
 def get_env_config():
@@ -293,7 +309,12 @@ def main():
     print(f"{'트랜스포머 모델 미세조정 (환경 자동 감지)':^60}")
     print("=" * 60)
 
-    # 1. 환경 감지
+    # 환경 정보 출력
+    print(f"\n실행 환경: {exec_mode.upper()}")
+    print(f"데이터 경로: {DATA_DIR}")
+    print(f"모델 저장: {OUTPUT_BASE_DIR}")
+
+    # 1. GPU/MPS/CPU 환경 감지
     config = get_env_config()
     print(f"\n{'설정 요약':-^60}")
     print(f"  Device: {config['device'].upper()}")
@@ -363,6 +384,68 @@ def main():
         print("=" * 60)
 
     print("\n✓ 모든 미세조정 완료!")
+
+    # ========== Colab: Google Drive 백업 ==========
+    if exec_mode == "colab":
+        print("\n" + "=" * 60)
+        print("Google Drive 백업 시작")
+        print("=" * 60)
+
+        try:
+            from google.colab import drive
+            import shutil
+
+            # Drive 마운트 (이미 마운트되어 있으면 스킵)
+            if not os.path.exists("/content/drive"):
+                print("\nDrive 마운트 중...")
+                drive.mount("/content/drive")
+
+            # 백업 경로 설정
+            drive_backup_base = "/content/drive/MyDrive/multicampus_project_backup"
+            drive_models = os.path.join(drive_backup_base, "models/fine_tuned")
+            drive_logs = os.path.join(drive_backup_base, "logs/fine_tuning")
+
+            # 기존 백업 삭제 (덮어쓰기 위해)
+            if os.path.exists(drive_models):
+                print(f"\n기존 모델 백업 삭제 중: {drive_models}")
+                shutil.rmtree(drive_models)
+            if os.path.exists(drive_logs):
+                print(f"기존 로그 백업 삭제 중: {drive_logs}")
+                shutil.rmtree(drive_logs)
+
+            # 모델 백업
+            if os.path.exists(OUTPUT_BASE_DIR):
+                print(f"\n미세조정 모델을 Drive로 백업 중...")
+                shutil.copytree(OUTPUT_BASE_DIR, drive_models)
+                backup_size = (
+                    sum(
+                        os.path.getsize(os.path.join(dirpath, filename))
+                        for dirpath, _, filenames in os.walk(drive_models)
+                        for filename in filenames
+                    )
+                    / 1024
+                    / 1024
+                )
+                print(f"✓ 모델 백업 완료: {drive_models}")
+                print(f"  - 크기: {backup_size:.1f} MB")
+
+            # 로그 백업
+            if os.path.exists(LOGS_DIR):
+                print(f"\n학습 로그를 Drive로 백업 중...")
+                shutil.copytree(LOGS_DIR, drive_logs)
+                print(f"✓ 로그 백업 완료: {drive_logs}")
+
+            print("\n" + "=" * 60)
+            print("Drive 백업 완료!")
+            print(f"백업 위치: {drive_backup_base}")
+            print("=" * 60 + "\n")
+
+        except Exception as e:
+            print(f"\n[경고] Drive 백업 실패: {e}")
+            print("세션 종료 시 /content 데이터가 삭제될 수 있습니다.")
+            import traceback
+
+            traceback.print_exc()
 
 
 if __name__ == "__main__":

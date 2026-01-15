@@ -8,6 +8,8 @@ kiwipiepy
 gensim
 transformers
 torch
+datasets
+accelerate
 
 # 데이터 처리 라이브러리
 numpy

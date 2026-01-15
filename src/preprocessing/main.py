@@ -763,8 +763,9 @@ def main():
 
             # 백업 경로 설정
             drive_backup_base = "/content/drive/MyDrive/multicampus_project_backup"
-            drive_processed = os.path.join(drive_backup_base, "processed_data")
+            drive_processed = os.path.join(drive_backup_base, "data", "processed_data")
             drive_models = os.path.join(drive_backup_base, "models")
+            drive_temp_tokens = os.path.join(drive_backup_base, "data", "temp_tokens")
 
             # 기존 백업 삭제 (덮어쓰기 위해)
             if os.path.exists(drive_processed):
@@ -773,6 +774,9 @@ def main():
             if os.path.exists(drive_models):
                 print(f"기존 모델 백업 삭제 중: {drive_models}")
                 shutil.rmtree(drive_models)
+            if os.path.exists(drive_temp_tokens):
+                print(f"기존 temp_tokens 백업 삭제 중: {drive_temp_tokens}")
+                shutil.rmtree(drive_temp_tokens)
 
             # processed_data 백업
             print(f"\n처리된 데이터를 Drive로 백업 중...")
@@ -796,6 +800,22 @@ def main():
                 print(f"\n모델을 Drive로 백업 중...")
                 shutil.copytree(local_models, drive_models)
                 print(f"✓ 모델 백업 완료: {drive_models}")
+
+            # temp_tokens 백업
+            if os.path.exists(TEMP_TOKENS_DIR):
+                print(f"\ntemp_tokens을 Drive로 백업 중...")
+                shutil.copytree(TEMP_TOKENS_DIR, drive_temp_tokens)
+                temp_tokens_size = (
+                    sum(
+                        os.path.getsize(os.path.join(dirpath, filename))
+                        for dirpath, _, filenames in os.walk(drive_temp_tokens)
+                        for filename in filenames
+                    )
+                    / 1024
+                    / 1024
+                )
+                print(f"✓ temp_tokens 백업 완료: {drive_temp_tokens}")
+                print(f"  - 크기: {temp_tokens_size:.1f} MB")
 
             print("\n" + "=" * 60)
             print("Drive 백업 완료!")

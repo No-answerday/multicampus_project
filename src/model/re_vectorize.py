@@ -34,13 +34,26 @@ except NameError:
 from bert_vectorizer import get_bert_vectorizer
 from preprocessing_phases import vectorize_file
 
-# ========== 설정 ==========
-# 입력 경로 (기존 데이터)
-TEMP_TOKENS_DIR = "./data/temp_tokens"  # 실제 위치
-INPUT_DATA_DIR = "./data/processed_data"
+# utils 모듈 import
+utils_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if utils_path not in sys.path:
+    sys.path.insert(0, utils_path)
+from utils.environment import get_execution_mode
 
-# 출력 경로 (새로운 폴더)
-OUTPUT_DATA_DIR = "./data/new_processed_data"
+# ========== 환경별 경로 설정 ==========
+exec_mode = get_execution_mode("auto")
+
+if exec_mode == "colab":
+    TEMP_TOKENS_DIR = "/content/data/temp_tokens"
+    INPUT_DATA_DIR = "/content/data/processed_data"
+    OUTPUT_DATA_DIR = "/content/data/new_processed_data"
+    MODELS_BASE_DIR = "/content/models"
+    print("[알림] Colab 환경: /content 로컬 스토리지 사용 (빠른 I/O)")
+else:
+    TEMP_TOKENS_DIR = "./data/temp_tokens"
+    INPUT_DATA_DIR = "./data/processed_data"
+    OUTPUT_DATA_DIR = "./data/new_processed_data"
+    MODELS_BASE_DIR = "./models"
 
 # ========== 사용할 모델 선택 ==========
 # 원하는 모델만 리스트에 포함시키세요
@@ -49,10 +62,10 @@ MODELS_TO_USE = ["word2vec", "bert", "roberta", "koelectra"]
 
 # 모델 경로 설정
 MODEL_PATHS = {
-    "word2vec": "./models/word2vec_model.model",  # 기존 word2vec 모델
-    "bert": "./models/fine_tuned/bert_final",
-    "roberta": "./models/fine_tuned/roberta_final",
-    "koelectra": "./models/fine_tuned/koelectra_final",
+    "word2vec": os.path.join(MODELS_BASE_DIR, "word2vec_model.model"),
+    "bert": os.path.join(MODELS_BASE_DIR, "fine_tuned/bert_final"),
+    "roberta": os.path.join(MODELS_BASE_DIR, "fine_tuned/roberta_final"),
+    "koelectra": os.path.join(MODELS_BASE_DIR, "fine_tuned/koelectra_final"),
 }
 
 
@@ -60,6 +73,29 @@ def main():
     print("\n" + "=" * 80)
     print(f"{'커스텀 모델 재벡터화 시작 (새 폴더 저장 모드)':^80}")
     print("=" * 80 + "\n")
+
+    print(f"실행 환경: {exec_mode.upper()}")
+    print(f"데이터 경로: {INPUT_DATA_DIR}")
+    print(f"출력 경로: {OUTPUT_DATA_DIR}")
+    print(f"모델 경로: {MODELS_BASE_DIR}\n")
+
+    # ========== 배치 사이즈 설정 (GPU 감지) ==========
+    import torch
+
+    if torch.cuda.is_available():
+        gpu_name = torch.cuda.get_device_name(0)
+        if "A100" in gpu_name:
+            batch_size = 64
+        elif "T4" in gpu_name:
+            batch_size = 32
+        else:
+            batch_size = 16
+        print(f"GPU 감지: {gpu_name}")
+        print(f"배치 사이즈: {batch_size} (GPU 최적화)\n")
+    else:
+        batch_size = 32  # CPU 기본값
+        print(f"GPU 미감지: CPU 모드")
+        print(f"배치 사이즈: {batch_size}\n")
 
     # 토큰화된 파일 찾기 (기존 경로에서 읽음)
     tokenized_files = glob.glob(os.path.join(TEMP_TOKENS_DIR, "*_tokenized.pkl"))
@@ -151,7 +187,7 @@ def main():
             w2v_model,  # word2vec 모델 전달 (None일 수도 있음)
             vectorizers,  # Transformer 모델들
             models_to_use,  # 사용할 모델 목록
-            None,  # 배치 사이즈 (자동)
+            batch_size,  # Colab이면 64, 로컬이면 None (자동)
         )
 
         result = vectorize_file(args)
@@ -429,6 +465,58 @@ def main():
     print("  - 통계 필드 재계산 완료")
     print("  - 카테고리별 파티셔닝 완료")
     print("=" * 80 + "\n")
+
+    # ========== Colab: Google Drive 백업 ==========
+    if exec_mode == "colab":
+        print("\n" + "=" * 60)
+        print("Google Drive 백업 시작")
+        print("=" * 60)
+
+        try:
+            from google.colab import drive
+            import shutil
+
+            # Drive 마운트 (이미 마운트되어 있으면 스킵)
+            if not os.path.exists("/content/drive"):
+                print("\nDrive 마운트 중...")
+                drive.mount("/content/drive")
+
+            # 백업 경로 설정
+            drive_backup_base = "/content/drive/MyDrive/multicampus_project_backup"
+            drive_data = os.path.join(drive_backup_base, "data/new_processed_data")
+
+            # 기존 백업 삭제 (덮어쓰기 위해)
+            if os.path.exists(drive_data):
+                print(f"\n기존 데이터 백업 삭제 중: {drive_data}")
+                shutil.rmtree(drive_data)
+
+            # 재벡터화 데이터 백업
+            if os.path.exists(OUTPUT_DATA_DIR):
+                print(f"\n재벡터화 데이터를 Drive로 백업 중...")
+                shutil.copytree(OUTPUT_DATA_DIR, drive_data)
+                backup_size = (
+                    sum(
+                        os.path.getsize(os.path.join(dirpath, filename))
+                        for dirpath, _, filenames in os.walk(drive_data)
+                        for filename in filenames
+                    )
+                    / 1024
+                    / 1024
+                )
+                print(f"✓ 데이터 백업 완료: {drive_data}")
+                print(f"  - 크기: {backup_size:.1f} MB")
+
+            print("\n" + "=" * 60)
+            print("Drive 백업 완료!")
+            print(f"백업 위치: {drive_backup_base}")
+            print("=" * 60 + "\n")
+
+        except Exception as e:
+            print(f"\n[경고] Drive 백업 실패: {e}")
+            print("세션 종료 시 /content 데이터가 삭제될 수 있습니다.")
+            import traceback
+
+            traceback.print_exc()
 
 
 if __name__ == "__main__":
