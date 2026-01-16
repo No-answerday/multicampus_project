@@ -24,6 +24,7 @@ from sklearn.metrics import (
     average_precision_score,
     f1_score,
     matthews_corrcoef,
+    precision_recall_fscore_support,
 )
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -175,17 +176,52 @@ def evaluate_model(
     y_pred = model.predict(X_test)
     y_proba = model.predict_proba(X_test)[:, 1]  # 긍정 클래스 확률
 
+    # average=None으로 각 클래스(0:부정, 1:긍정)별 점수를 얻음
+    precision_per_class, recall_per_class, f1_per_class, support_per_class = (
+        precision_recall_fscore_support(y_test, y_pred, average=None, labels=[0, 1])
+    )
+
     # ============ 기본 메트릭 ============
     accuracy = accuracy_score(y_test, y_pred)
-    f1 = f1_score(y_test, y_pred)
+    f1_macro = f1_score(y_test, y_pred, average="macro")  # 클래스 평균
+    f1_weighted = f1_score(y_test, y_pred, average="weighted")  # 가중 평균
     mcc = matthews_corrcoef(y_test, y_pred)
 
     print("\n" + "=" * 70)
     print("기본 성능 메트릭")
     print("=" * 70)
-    print(f"정확도 (Accuracy):     {accuracy:.4f}")
-    print(f"F1 Score:              {f1:.4f}")
-    print(f"Matthews Corr Coef:    {mcc:.4f}")
+    print(f"정확도 (Accuracy):         {accuracy:.4f}")
+    print(f"F1 Score (Macro Avg):      {f1_macro:.4f}")
+    print(f"F1 Score (Weighted Avg):   {f1_weighted:.4f}")
+    print(f"Matthews Corr Coef:        {mcc:.4f}")
+
+    # ============ 클래스별 상세 성능 (핵심!) ============
+    print("\n" + "=" * 70)
+    print("클래스별 상세 성능 (Class-wise Performance)")
+    print("=" * 70)
+    print(
+        f"{'클래스':<10} {'Precision':<12} {'Recall':<12} {'F1-Score':<12} {'Support':<10}"
+    )
+    print("-" * 70)
+    print(
+        f"{'부정(0)':<10} {precision_per_class[0]:<12.4f} {recall_per_class[0]:<12.4f} {f1_per_class[0]:<12.4f} {support_per_class[0]:<10,}"
+    )
+    print(
+        f"{'긍정(1)':<10} {precision_per_class[1]:<12.4f} {recall_per_class[1]:<12.4f} {f1_per_class[1]:<12.4f} {support_per_class[1]:<10,}"
+    )
+    print("\n[해석]")
+    print(
+        f"  • 부정 리뷰 F1: {f1_per_class[0]:.4f} - 부정 리뷰를 얼마나 정확하게 분류하는가"
+    )
+    print(
+        f"  • 긍정 리뷰 F1: {f1_per_class[1]:.4f} - 긍정 리뷰를 얼마나 정확하게 분류하는가"
+    )
+    print(
+        f"  • 부정 Recall: {recall_per_class[0]:.4f} - 실제 부정 리뷰 중 몇 %를 찾아냈는가"
+    )
+    print(
+        f"  • 긍정 Recall: {recall_per_class[1]:.4f} - 실제 긍정 리뷰 중 몇 %를 찾아냈는가"
+    )
 
     # ============ 분류 리포트 ============
     print("\n" + "=" * 70)
@@ -344,10 +380,14 @@ def evaluate_model(
     metrics_text = f"""성능 요약
     
 정확도: {accuracy:.4f}
-F1 Score: {f1:.4f}
+F1 (Macro): {f1_macro:.4f}
+F1 (Weighted): {f1_weighted:.4f}
 MCC: {mcc:.4f}
 AUC: {roc_auc:.4f}
 Avg Precision: {avg_precision:.4f}
+
+부정 F1: {f1_per_class[0]:.4f}
+긍정 F1: {f1_per_class[1]:.4f}
 
 TN: {tn:,}  FP: {fp:,}
 FN: {fn:,}  TP: {tp:,}
@@ -393,7 +433,10 @@ Sensitivity: {tp/(tp+fn):.4f}"""
     # 성능 메트릭 반환
     return {
         "accuracy": accuracy,
-        "f1": f1,
+        "f1_macro": f1_macro,
+        "f1_weighted": f1_weighted,
+        "f1_neg": f1_per_class[0],
+        "f1_pos": f1_per_class[1],
         "mcc": mcc,
         "auc": roc_auc,
         "avg_precision": avg_precision,
@@ -490,16 +533,18 @@ def main():
         print("=" * 90)
 
         # 헤더
-        header = f"{'Model':<12} {'Accuracy':>9} {'F1-Score':>9} {'AUC':>9} {'MCC':>9} {'Train Time':>12}"
+        header = f"{'Model':<12} {'Accuracy':>9} {'F1 Macro':>9} {'F1 Neg':>9} {'F1 Pos':>9} {'AUC':>9} {'MCC':>9} {'Train Time':>12}"
         print(header)
-        print("-" * 90)
+        print("-" * 110)
 
         # 각 모델 결과
         for result in performance_results:
             row = (
                 f"{result['model_name']:<12} "
                 f"{result['accuracy']:>9.4f} "
-                f"{result['f1']:>9.4f} "
+                f"{result['f1_macro']:>9.4f} "
+                f"{result['f1_neg']:>9.4f} "
+                f"{result['f1_pos']:>9.4f} "
                 f"{result['auc']:>9.4f} "
                 f"{result['mcc']:>9.4f} "
                 f"{result['train_time']:>11.1f}s"
@@ -508,15 +553,21 @@ def main():
 
         # 최고 성능 모델 표시
         best_acc = max(performance_results, key=lambda x: x["accuracy"])
-        best_f1 = max(performance_results, key=lambda x: x["f1"])
+        best_f1_macro = max(performance_results, key=lambda x: x["f1_macro"])
+        best_f1_neg = max(performance_results, key=lambda x: x["f1_neg"])
         best_auc = max(performance_results, key=lambda x: x["auc"])
 
-        print("\n" + "-" * 90)
+        print("\n" + "-" * 110)
         print("최고 성능:")
-        print(f"  - Accuracy: {best_acc['model_name']} ({best_acc['accuracy']:.4f})")
-        print(f"  - F1-Score: {best_f1['model_name']} ({best_f1['f1']:.4f})")
-        print(f"  - AUC:      {best_auc['model_name']} ({best_auc['auc']:.4f})")
-        print("=" * 90)
+        print(f"  - Accuracy:  {best_acc['model_name']} ({best_acc['accuracy']:.4f})")
+        print(
+            f"  - F1 Macro:  {best_f1_macro['model_name']} ({best_f1_macro['f1_macro']:.4f})"
+        )
+        print(
+            f"  - F1 부정:   {best_f1_neg['model_name']} ({best_f1_neg['f1_neg']:.4f})"
+        )
+        print(f"  - AUC:       {best_auc['model_name']} ({best_auc['auc']:.4f})")
+        print("=" * 110)
 
     print("\n" + "=" * 70)
     print("학습 완료!")
