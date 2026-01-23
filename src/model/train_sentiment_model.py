@@ -13,6 +13,15 @@ import numpy as np
 import joblib
 import glob
 from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import (
+    RandomForestClassifier,
+    VotingClassifier,
+    StackingClassifier,
+)
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.svm import SVC
+from xgboost import XGBClassifier
+from lightgbm import LGBMClassifier
 from sklearn.model_selection import train_test_split, cross_val_score, StratifiedKFold
 from sklearn.metrics import (
     accuracy_score,
@@ -25,6 +34,8 @@ from sklearn.metrics import (
     f1_score,
     matthews_corrcoef,
     precision_recall_fscore_support,
+    precision_score,
+    recall_score,
 )
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -44,6 +55,15 @@ else:  # 리눅스 (예: Google Colab, Ubuntu)
     KOREAN_FONT = "NanumGothic"
 
 plt.rcParams["axes.unicode_minus"] = False  # 마이너스 깨짐 방지
+
+# ========== 학습할 조합 선택 ==========
+# 1) 벡터 타입 선택 (None이면 전부 사용)
+#    사용 가능: "word2vec", "bert", "roberta", "koelectra"
+VECTOR_TYPES_TO_USE = ["word2vec", "bert", "roberta", "koelectra"]  # roberta만 사용
+# VECTOR_TYPES_TO_USE = None  # 전부 사용하려면 None
+
+# 2) ML 모델 선택
+#    사용 가능: "Logistic", "RandomForest", "DecisionTree", "XGBoost", "LightGBM", "SVM", "Voting", "Stacking"
 
 
 def load_review_data(partitioned_reviews_dir):
@@ -154,14 +174,63 @@ def prepare_training_data(reviews):
     return results
 
 
-def train_model(X_train, y_train):
-    print("\n모델 학습 중...")
+def get_model_dictionary():
+    """비교할 ML 모델들을 정의합니다."""
+    lr = LogisticRegression(max_iter=1000, class_weight="balanced", random_state=42)
+    rf = RandomForestClassifier(
+        n_estimators=100, class_weight="balanced", random_state=42, n_jobs=-1
+    )
+    dt = DecisionTreeClassifier(class_weight="balanced", random_state=42)
+    xgb = XGBClassifier(
+        use_label_encoder=False, eval_metric="logloss", random_state=42, n_jobs=-1
+    )
+    lgbm = LGBMClassifier(
+        class_weight="balanced", random_state=42, n_jobs=-1, verbose=-1
+    )
+    svc = SVC(probability=True, class_weight="balanced", random_state=42)
+
+    # 앙상블 모델 정의
+    estimators = [("lr", lr), ("rf", rf), ("xgb", xgb)]
+    voting = VotingClassifier(estimators=estimators, voting="soft", n_jobs=-1)
+    stacking = StackingClassifier(
+        estimators=estimators, final_estimator=LogisticRegression(), n_jobs=-1
+    )
+
+    return {
+        "Logistic": lr,
+        "RandomForest": rf,
+        "DecisionTree": dt,
+        "XGBoost": xgb,
+        "LightGBM": lgbm,
+        "SVM": svc,
+        "Voting": voting,
+        "Stacking": stacking,
+    }
+
+
+def train_model(X_train, y_train, ml_model=None):
+    """모델 학습
+
+    Args:
+        X_train: 학습 데이터
+        y_train: 학습 레이블
+        ml_model: 사용할 ML 모델 (None이면 기본 LogisticRegression)
+    """
     import time
 
     start_time = time.time()
 
-    # 클래스 불균형 대응을 위해 class_weight='balanced' 설정
-    model = LogisticRegression(max_iter=1000, random_state=42, class_weight="balanced")
+    if ml_model is None:
+        # 기본값: Logistic Regression
+        model = LogisticRegression(
+            max_iter=1000, random_state=42, class_weight="balanced"
+        )
+        print("\n[Logistic Regression] 모델 학습 중...")
+    else:
+        model = ml_model
+        model_name = type(model).__name__
+        print(f"\n[{model_name}] 모델 학습 중...")
+
     model.fit(X_train, y_train)
 
     train_time = time.time() - start_time
@@ -457,7 +526,7 @@ def recall_score_custom(y_true, y_pred):
 
 def main():
     print("=" * 70)
-    print("감성 분석 모델 학습 (Logistic Regression)")
+    print(f"감성 분석 모델 학습 (사용 모델: {', '.join(ML_MODELS_TO_USE)})")
     print("=" * 70)
 
     # 경로 설정
@@ -482,16 +551,55 @@ def main():
     # 성능 비교를 위한 결과 저장
     performance_results = []
 
-    # 3. 각 모델별로 학습 및 평가
-    for model_name in sorted(model_data.keys()):
-        X, y = model_data[model_name]
+    # ML 모델 딕셔너리 가져오기
+    ml_models_dict = get_model_dictionary()
+
+    # 선택된 ML 모델만 필터링
+    selected_ml_models = {
+        name: model
+        for name, model in ml_models_dict.items()
+        if name in ML_MODELS_TO_USE
+    }
+
+    if not selected_ml_models:
+        print("\n[경고] ML_MODELS_TO_USE가 비어있거나 유효하지 않은 모델명입니다.")
+        print(f"사용 가능한 모델: {list(ml_models_dict.keys())}")
+        return
+
+    print(f"\n선택된 ML 모델: {list(selected_ml_models.keys())}")
+
+    # 벡터 타입 필터링
+    if VECTOR_TYPES_TO_USE is not None:
+        available_vectors = {
+            vname: vdata
+            for vname, vdata in model_data.items()
+            if vname in VECTOR_TYPES_TO_USE
+        }
+        if not available_vectors:
+            print(f"\n[경고] VECTOR_TYPES_TO_USE에 지정된 벡터가 데이터에 없습니다.")
+            print(f"  - 요청: {VECTOR_TYPES_TO_USE}")
+            print(f"  - 사용 가능: {list(model_data.keys())}")
+            return
+        print(f"선택된 벡터 타입: {list(available_vectors.keys())}")
+    else:
+        available_vectors = model_data
+        print(f"전체 벡터 타입 사용: {list(available_vectors.keys())}")
+
+    # 학습할 조합 개수 미리 계산
+    total_combinations = len(available_vectors) * len(selected_ml_models)
+    print(f"\n💡 총 {total_combinations}개 조합 학습 예정")
+    print(f"   ({len(available_vectors)}개 벡터 × {len(selected_ml_models)}개 ML 모델)")
+
+    # 3. 각 벡터 타입별로 학습 및 평가
+    for vector_name in sorted(available_vectors.keys()):
+        X, y = available_vectors[vector_name]
 
         if X.size == 0:
-            print(f"\n[건너뜀] {model_name.upper()}: 데이터 없음")
+            print(f"\n[건너뜀] {vector_name.upper()}: 데이터 없음")
             continue
 
         print("\n" + "=" * 100)
-        print(f"{model_name.upper()} 기반 모델 학습")
+        print(f"{vector_name.upper()} 벡터 기반 모델 학습")
         print("=" * 100)
 
         print("\n데이터 분할 중...")
@@ -500,47 +608,62 @@ def main():
         )
         print(f"✓ 훈련: {len(X_train):,}개 / 테스트: {len(X_test):,}개")
 
-        # 모델 학습
-        model, train_time = train_model(X_train, y_train)
+        # 각 ML 모델별로 학습
+        for ml_model_name, ml_model in selected_ml_models.items():
+            print("\n" + "-" * 80)
+            print(f"[{vector_name.upper()}] × [{ml_model_name}] 조합")
+            print("-" * 80)
 
-        # 모델 평가
-        performance = evaluate_model(
-            model,
-            X_test,
-            y_test,
-            MODEL_OUTPUT_DIR,
-            model_name=model_name,
-            X_train=X_train,
-            y_train=y_train,
-        )
+            # 모델 학습
+            model, train_time = train_model(X_train, y_train, ml_model)
 
-        # 성능 결과 저장
-        performance["model_name"] = model_name
-        performance["train_time"] = train_time
-        performance_results.append(performance)
+            # 모델 평가
+            combined_name = f"{vector_name}_{ml_model_name}"
+            performance = evaluate_model(
+                model,
+                X_test,
+                y_test,
+                MODEL_OUTPUT_DIR,
+                model_name=combined_name,
+                X_train=X_train,
+                y_train=y_train,
+            )
 
-        # 모델 저장
-        model_path = os.path.join(
-            MODEL_OUTPUT_DIR, f"logistic_regression_sentiment_{model_name}.joblib"
-        )
-        joblib.dump(model, model_path)
-        print(f"\n✓ 모델 저장 완료: {model_path}")
+            # 성능 결과 저장
+            performance["vector_name"] = vector_name
+            performance["ml_model_name"] = ml_model_name
+            performance["combined_name"] = combined_name
+            performance["train_time"] = train_time
+            performance_results.append(performance)
+
+            # 모델 저장
+            model_path = os.path.join(
+                MODEL_OUTPUT_DIR, f"sentiment_{combined_name}.joblib"
+            )
+            joblib.dump(model, model_path)
+            print(f"\n✓ 모델 저장 완료: {model_path}")
 
     # 4. 성능 비교 표 출력
     if performance_results:
-        print("\n" + "=" * 90)
-        print("모델 성능 비교")
-        print("=" * 90)
+        print("\n" + "=" * 130)
+        print("모델 성능 비교 (벡터 타입 × ML 모델)")
+        print("=" * 130)
 
         # 헤더
-        header = f"{'Model':<12} {'Accuracy':>9} {'F1 Macro':>9} {'F1 Neg':>9} {'F1 Pos':>9} {'AUC':>9} {'MCC':>9} {'Train Time':>12}"
+        header = f"{'Vector':<12} {'ML Model':<15} {'Accuracy':>9} {'F1 Macro':>9} {'F1 Neg':>9} {'F1 Pos':>9} {'AUC':>9} {'MCC':>9} {'Train Time':>12}"
         print(header)
-        print("-" * 110)
+        print("-" * 130)
+
+        # MCC 기준으로 정렬
+        sorted_results = sorted(
+            performance_results, key=lambda x: x["mcc"], reverse=True
+        )
 
         # 각 모델 결과
-        for result in performance_results:
+        for result in sorted_results:
             row = (
-                f"{result['model_name']:<12} "
+                f"{result['vector_name']:<12} "
+                f"{result['ml_model_name']:<15} "
                 f"{result['accuracy']:>9.4f} "
                 f"{result['f1_macro']:>9.4f} "
                 f"{result['f1_neg']:>9.4f} "
@@ -556,25 +679,34 @@ def main():
         best_f1_macro = max(performance_results, key=lambda x: x["f1_macro"])
         best_f1_neg = max(performance_results, key=lambda x: x["f1_neg"])
         best_auc = max(performance_results, key=lambda x: x["auc"])
+        best_mcc = max(performance_results, key=lambda x: x["mcc"])
 
-        print("\n" + "-" * 110)
+        print("\n" + "-" * 130)
         print("최고 성능:")
-        print(f"  - Accuracy:  {best_acc['model_name']} ({best_acc['accuracy']:.4f})")
         print(
-            f"  - F1 Macro:  {best_f1_macro['model_name']} ({best_f1_macro['f1_macro']:.4f})"
+            f"  - Accuracy:  {best_acc['combined_name']} ({best_acc['accuracy']:.4f})"
         )
         print(
-            f"  - F1 부정:   {best_f1_neg['model_name']} ({best_f1_neg['f1_neg']:.4f})"
+            f"  - F1 Macro:  {best_f1_macro['combined_name']} ({best_f1_macro['f1_macro']:.4f})"
         )
-        print(f"  - AUC:       {best_auc['model_name']} ({best_auc['auc']:.4f})")
-        print("=" * 110)
+        print(
+            f"  - F1 부정:   {best_f1_neg['combined_name']} ({best_f1_neg['f1_neg']:.4f})"
+        )
+        print(f"  - AUC:       {best_auc['combined_name']} ({best_auc['auc']:.4f})")
+        print(
+            f"  - MCC:       {best_mcc['combined_name']} ({best_mcc['mcc']:.4f}) ⭐ 추천"
+        )
+        print("=" * 130)
 
     print("\n" + "=" * 70)
     print("학습 완료!")
-    for result in performance_results:
+    print(f"총 {len(performance_results)}개 모델 저장됨:")
+    for result in sorted_results[:5]:  # 상위 5개만 표시
         print(
-            f"  - {result['model_name'].upper()} 모델: logistic_regression_sentiment_{result['model_name']}.joblib"
+            f"  - {result['combined_name']}: sentiment_{result['combined_name']}.joblib"
         )
+    if len(sorted_results) > 5:
+        print(f"  ... 외 {len(sorted_results) - 5}개")
     print("=" * 70)
 
 
