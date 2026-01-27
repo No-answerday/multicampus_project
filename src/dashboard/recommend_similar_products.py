@@ -11,26 +11,6 @@ sys.path.append("./src/preprocessing")
 from bert_vectorizer import BERTVectorizer
 
 
-def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
-    if vec1 is None or vec2 is None:
-        return 0.0
-
-    # 벡터가 리스트인 경우 numpy 배열로 변환
-    if isinstance(vec1, list):
-        vec1 = np.array(vec1)
-    if isinstance(vec2, list):
-        vec2 = np.array(vec2)
-
-    # 0 벡터인 경우 처리
-    norm1 = np.linalg.norm(vec1)
-    norm2 = np.linalg.norm(vec2)
-
-    if norm1 == 0 or norm2 == 0:
-        return 0.0
-
-    return float(np.dot(vec1, vec2) / (norm1 * norm2))
-
-
 def load_products_data(
     processed_data_dir: str = "./data/processed_data",
     categories: Optional[List[str]] = None,
@@ -159,6 +139,7 @@ def recommend_similar_products(
     target_vector = None
     target_name = None
     weights = None  # [유사도, 긍정확률, 정규화평점]
+    is_semantic_search = False  # 문맥 검색 여부
 
     if product_id is not None and query_text is not None:
         raise ValueError("product_id와 query_text를 동시에 사용할 수 없습니다.")
@@ -210,11 +191,12 @@ def recommend_similar_products(
                 f"semantic_vectorize.py를 먼저 실행하세요."
             )
 
-        weights = [0.9, 0.06, 0.04]
+        is_semantic_search = True
+        weights = [0.99, 0.01, 0]  # 문맥 검색 시 유사도 비중 극대화
         target_name = query_text
         print(f"✓ 검색 쿼리: {query_text}")
         print(
-            "점수 = 유사도 * 0.9 + 긍정확률 * 0.06 + 정규화_평점 * 0.04 (문맥 비중 상향)"
+            "점수 = (유사도^2) * 0.95 + 긍정확률 * 0.03 + 정규화_평점 * 0.02 (유사도 지수적 강화)"
         )
 
     else:
@@ -244,14 +226,25 @@ def recommend_similar_products(
         )
 
         # 추천 점수 계산 (가중치 적용)
-        df = df.assign(
-            cosine_similarity=similarities,
-            recommend_score=lambda x: (
-                x["cosine_similarity"] * weights[0]
-                + x["sentiment_score"] * weights[1]
-                + x["normalized_rating"] * weights[2]
-            ),
-        )
+        # 문맥 검색 시 유사도를 제곱하여 지수적으로 강화
+        if is_semantic_search:
+            df = df.assign(
+                cosine_similarity=similarities,
+                recommend_score=lambda x: (
+                    (x["cosine_similarity"] ** 20) * weights[0]  # 유사도 제곱 적용
+                    + x["sentiment_score"] * weights[1]
+                    + x["normalized_rating"] * weights[2]
+                ),
+            )
+        else:
+            df = df.assign(
+                cosine_similarity=similarities,
+                recommend_score=lambda x: (
+                    x["cosine_similarity"] * weights[0]
+                    + x["sentiment_score"] * weights[1]
+                    + x["normalized_rating"] * weights[2]
+                ),
+            )
 
     else:
         # 전체 랭킹 모드: 유사도 없이 점수 계산
@@ -416,7 +409,7 @@ if __name__ == "__main__":
     vectorizer = BERTVectorizer(model_name="./models/fine_tuned/roberta_semantic_final")
 
     results = recommend_similar_products(
-        query_text="지성 피부에 좋은 로션",
+        query_text="지성 피부에 좋은 묽은 로션",
         # query_text="여드름에 좋으면서 꾸덕꾸덕한 질감에 향이 좋은 로션 그리고 건성 피부에 좋으면 좋겠어",
         categories=None,
         top_n=5,
@@ -430,7 +423,7 @@ if __name__ == "__main__":
     vectorizer = BERTVectorizer(model_name="./models/fine_tuned/roberta_semantic_final")
 
     results = recommend_similar_products(
-        query_text="건성 피부에 좋은 로션",
+        query_text="건성 피부에 좋은 기름지고 꾸덕한 로션",
         # query_text="여드름에 좋으면서 꾸덕꾸덕한 질감에 향이 좋은 로션 그리고 건성 피부에 좋으면 좋겠어",
         categories=None,
         top_n=5,
