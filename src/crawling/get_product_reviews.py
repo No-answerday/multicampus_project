@@ -59,7 +59,7 @@ def get_product_reviews(
 
     product_id = str(rank_num)
     product_name = "Unknown"
-
+    time.sleep(0.5)
     try:
         product_name_h1 = soup.select_one("h1.product-title.twc-text-lg.twc-text-black")
         if product_name_h1:
@@ -153,6 +153,21 @@ def get_product_reviews(
     except:
         pass
 
+    # 상품 이미지 URL 추출
+    img_url = ""
+    try:
+        # class가 "twc-w-full twc-max-h-[546px]"인 img 태그 찾기
+        img_tag = soup.select_one("img.twc-w-full.twc-max-h-\[546px\]")
+        if img_tag and img_tag.get("src"):
+            src = img_tag.get("src")
+            # //로 시작하면 https: 붙이기
+            if src.startswith("//"):
+                img_url = f"https:{src}"
+            else:
+                img_url = src
+    except:
+        pass
+
     # -------------------------------------------------------
     # [브랜드 본사 정품 체크 - 수집 제외]
     # -------------------------------------------------------
@@ -176,7 +191,9 @@ def get_product_reviews(
     except:
         pass
 
-    print(f"   -> 상품ID: {product_id} / 브랜드: {brand_name} / 상품명: {product_name}")
+    print(
+        f"   -> 상품ID: {product_id} / 브랜드: {brand_name} / 상품명: {product_name} / 상품 img: {img_url}"
+    )
     print(f"   -> 가격: {price}원 / 배송: {delivery_type} / 총리뷰: {total_reviews}")
 
     if product_name == "Unknown":
@@ -196,6 +213,7 @@ def get_product_reviews(
             "brand": brand_name,
             "category_path": category_str,
             "product_name": product_name,
+            "img_url": img_url,
             "price": price,
             "delivery_type": delivery_type,
             "total_reviews": total_reviews,
@@ -224,6 +242,7 @@ def get_product_reviews(
             "brand": brand_name,
             "category_path": category_str,
             "product_name": product_name,
+            "img_url": img_url,
             "price": price,
             "delivery_type": delivery_type,
             "total_reviews": total_reviews,
@@ -255,7 +274,7 @@ def get_product_reviews(
         review_section = driver.find_element(By.ID, "sdpReview")
         driver.execute_script("arguments[0].scrollIntoView(true);", review_section)
         driver.execute_script("window.scrollBy(0, -200);")
-        time.sleep(random.uniform(1, 1.5))
+        time.sleep(random.uniform(1.2, 1.7))
 
         dropdown_trigger = WebDriverWait(driver, 5).until(
             EC.element_to_be_clickable(
@@ -270,7 +289,7 @@ def get_product_reviews(
         )
         time.sleep(random.uniform(0.5, 1))
         driver.execute_script("arguments[0].click();", dropdown_trigger)
-        time.sleep(random.uniform(1, 1.5))
+        time.sleep(random.uniform(1.2, 1.7))
 
         import re
 
@@ -360,11 +379,11 @@ def get_product_reviews(
             review_section = driver.find_element(By.ID, "sdpReview")
             driver.execute_script("arguments[0].scrollIntoView(true);", review_section)
             driver.execute_script("window.scrollBy(0, -200);")  # 헤더 공간 확보
-            time.sleep(random.uniform(0.7, 1))
+            time.sleep(random.uniform(1, 1.2))
         except:
             # 리뷰 섹션을 못 찾으면 페이지 상단으로
             driver.execute_script("window.scrollTo(0, 0);")
-            time.sleep(random.uniform(0.7, 1))
+            time.sleep(random.uniform(1, 1.2))
         # 1. 별점 드롭다운 열기 (Test Script의 XPath 사용)
         try:
             dropdown_trigger = WebDriverWait(driver, 5).until(
@@ -379,7 +398,7 @@ def get_product_reviews(
             driver.execute_script(
                 "arguments[0].scrollIntoView({block: 'center'});", dropdown_trigger
             )
-            time.sleep(random.uniform(0.5, 1))
+            time.sleep(random.uniform(0.7, 1.2))
 
             # 현재 선택된 텍스트 확인 (디버깅용)
             # print(f"     -> 현재 드롭다운 상태: {dropdown_trigger.text.strip()}")
@@ -406,7 +425,7 @@ def get_product_reviews(
             driver.execute_script(
                 "arguments[0].scrollIntoView({block: 'center'});", star_option
             )
-            time.sleep(random.uniform(0.5, 1))
+            time.sleep(random.uniform(0.7, 1.2))
             driver.execute_script("arguments[0].click();", star_option)
 
             # print(f"     -> 필터 적용 완료: {target_text}")
@@ -548,7 +567,7 @@ def get_product_reviews(
                         next_arrow_btn,
                     )
                     driver.execute_script("arguments[0].click();", next_arrow_btn)
-                    time.sleep(random.uniform(0.9, 1))
+                    time.sleep(random.uniform(1.1, 1.2))
 
                     next_page_number = current_page_num + 1
                     next_block_first_btn = WebDriverWait(driver, 5).until(
@@ -560,7 +579,7 @@ def get_product_reviews(
                         )
                     )
                     driver.execute_script("arguments[0].click();", next_block_first_btn)
-                    time.sleep(random.uniform(0.9, 1))
+                    time.sleep(random.uniform(1.1, 1.2))
 
                     current_page_num = next_page_number
                     continue
@@ -581,7 +600,7 @@ def get_product_reviews(
                         "arguments[0].scrollIntoView({block: 'center'});", next_btn
                     )
                     driver.execute_script("arguments[0].click();", next_btn)
-                    time.sleep(random.uniform(0.9, 1))
+                    time.sleep(random.uniform(1.1, 1.2))
                     current_page_num += 1
                 except:
                     # print(
@@ -594,6 +613,7 @@ def get_product_reviews(
         "brand": brand_name,
         "category_path": category_str,
         "product_name": product_name,
+        "img_url": img_url,
         "price": price,
         "delivery_type": delivery_type,
         "total_reviews": total_reviews,

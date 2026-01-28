@@ -22,12 +22,13 @@ def main():
     # [방법 2] 카테고리 수집을 원할 때
     MODE = "CATEGORY"
     TARGETS = {
+        "스킨": "486248",
         # "올인원": "486271",
         # "알로에_수딩_애프터선": "486272",
         # "기초세트": "486254",
         # "블러셔": "176595",
-        "하이라이터": "403010",
-        "셰이딩": "403011",
+        # "하이라이터": "403010",
+        # "셰이딩": "403011",
         # "쿠션_팩트": "403009",
         # "파운데이션": "176591",
     }
@@ -147,12 +148,18 @@ def main():
                     # 모드에 따라 호출 함수 분기
                     if MODE == "KEYWORD":
                         urls = get_product_urls(
-                            driver, search_key, max_products=PRODUCT_LIMIT
+                            driver,
+                            search_key,
+                            max_products=PRODUCT_LIMIT,
+                            min_reviews=30,
                         )
                     else:
                         # 카테고리 ID로 수집 함수 호출
                         urls = get_category_product_urls(
-                            driver, search_id, max_products=PRODUCT_LIMIT
+                            driver,
+                            search_id,
+                            max_products=PRODUCT_LIMIT,
+                            min_reviews=30,
                         )
 
                     print(f">>> [{search_key}] URL {len(urls)}개 확보 완료")
