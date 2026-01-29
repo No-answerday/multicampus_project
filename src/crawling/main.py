@@ -22,7 +22,11 @@ def main():
     # [방법 2] 카테고리 수집을 원할 때
     MODE = "CATEGORY"
     TARGETS = {
-        "스킨": "486248",
+        # "스킨": "486248",
+        "로션": "486249",
+        "에센스_세럼_앰플": "486250",
+        "미스트": "486251",
+        "오일": "486252",
         # "올인원": "486271",
         # "알로에_수딩_애프터선": "486272",
         # "기초세트": "486254",
@@ -143,7 +147,9 @@ def main():
                 options.add_argument("--window-size=1920,1080")
                 options.add_argument("--blink-settings=imagesEnabled=false")
 
-                driver = uc.Chrome(options=options, use_subprocess=False)
+                driver = uc.Chrome(
+                    options=options, use_subprocess=False, version_main=144
+                )
                 try:
                     # 모드에 따라 호출 함수 분기
                     if MODE == "KEYWORD":
@@ -151,7 +157,7 @@ def main():
                             driver,
                             search_key,
                             max_products=PRODUCT_LIMIT,
-                            min_reviews=30,
+                            min_reviews=100,
                         )
                     else:
                         # 카테고리 ID로 수집 함수 호출
@@ -159,7 +165,7 @@ def main():
                             driver,
                             search_id,
                             max_products=PRODUCT_LIMIT,
-                            min_reviews=30,
+                            min_reviews=100,
                         )
 
                     print(f">>> [{search_key}] URL {len(urls)}개 확보 완료")
@@ -261,7 +267,9 @@ def main():
                             options.add_argument("--password-store=basic")
                             options.add_argument("--window-size=1920,1080")
                             options.add_argument("--blink-settings=imagesEnabled=false")
-                            driver = uc.Chrome(options=options, use_subprocess=False)
+                            driver = uc.Chrome(
+                                options=options, use_subprocess=False, version_main=144
+                            )
                             driver_collected_count = 0
 
                         # 수집 함수 호출 (현재 드라이버 수집량 전달)
