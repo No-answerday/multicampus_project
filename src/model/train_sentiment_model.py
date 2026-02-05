@@ -44,10 +44,14 @@ import seaborn as sns
 from matplotlib import font_manager, rc
 import platform
 import sys
+import warnings
 
 # 환경 감지 유틸리티 import
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from utils.environment import is_colab
+
+# matplotlib 폰트 경고 억제
+warnings.filterwarnings("ignore", category=UserWarning, module="matplotlib")
 
 if platform.system() == "Windows":
     plt.rc("font", family="Malgun Gothic")
@@ -56,8 +60,22 @@ elif platform.system() == "Darwin":  # macOS
     plt.rc("font", family="AppleGothic")
     KOREAN_FONT = "AppleGothic"
 else:  # 리눅스 (예: Google Colab, Ubuntu)
-    plt.rc("font", family="NanumGothic")
-    KOREAN_FONT = "NanumGothic"
+    # 사용 가능한 한글 폰트 찾기
+    available_fonts = [f.name for f in font_manager.fontManager.ttflist]
+    korean_fonts = ["NanumGothic", "NanumBarunGothic", "DejaVu Sans", "Liberation Sans"]
+
+    selected_font = None
+    for font in korean_fonts:
+        if font in available_fonts:
+            selected_font = font
+            break
+
+    if selected_font:
+        plt.rc("font", family=selected_font)
+        KOREAN_FONT = selected_font
+    else:
+        # 폰트를 찾을 수 없으면 기본 폰트 사용 (경고 없이)
+        KOREAN_FONT = "sans-serif"
 
 plt.rcParams["axes.unicode_minus"] = False  # 마이너스 깨짐 방지
 
@@ -72,16 +90,16 @@ VECTOR_TYPES_TO_USE = [
 # VECTOR_TYPES_TO_USE = None  # 전부 사용하려면 None
 
 # 2) ML 모델 선택
-#    사용 가능: "Logistic", "RandomForest", "DecisionTree", "XGBoost", "LightGBM", "SVM", "Voting", "Stacking"
+#    사용 가능: "Logistic", "DecisionTree","LightGBM", "XGBoost","RandomForest", "Voting", "Stacking","SVM"
 ML_MODELS_TO_USE = [
-    # "Logistic",
-    # "RandomForest",
-    # "DecisionTree",
+    "Logistic",
+    "LightGBM",
     "XGBoost",
-    # "LightGBM",
-    # "SVM",
-    # "Voting",
-    # "Stacking",
+    "DecisionTree",
+    "RandomForest",
+    "Voting",
+    "Stacking",
+    "SVM",
 ]
 
 
@@ -274,6 +292,15 @@ def prepare_training_data(df):
 def get_model_dictionary():
     """비교할 ML 모델들을 정의합니다."""
     from sklearn.linear_model import SGDClassifier
+    import torch
+
+    # GPU 사용 가능 여부 확인 (Colab 환경에서만)
+    use_gpu = is_colab() and torch.cuda.is_available()
+
+    if use_gpu:
+        print("\n🚀 GPU 모드 활성화 (XGBoost, LightGBM에서 GPU 사용)")
+    else:
+        print("\n💻 CPU 모드 (로컬 환경 또는 GPU 없음)")
 
     # 1. 조기 종료 가능한 Logistic Regression (SGD 방식)
     lr = SGDClassifier(
@@ -286,18 +313,66 @@ def get_model_dictionary():
         max_iter=1000,
     )
 
-    # 2. XGBoost & LightGBM (기본 설정 유지, 학습 시 파라미터 전달)
-    xgb = XGBClassifier(eval_metric="logloss", random_state=42, n_jobs=-1)
-    lgbm = LGBMClassifier(
-        class_weight="balanced", random_state=42, n_jobs=-1, verbose=-1
-    )
+    # 2. XGBoost & LightGBM (GPU/CPU 자동 선택)
+    if use_gpu:
+        xgb = XGBClassifier(
+            eval_metric="logloss",
+            random_state=42,
+            device="cuda",  # GPU 사용 (XGBoost 3.1+에서 gpu_id 대신 device 사용)
+            n_jobs=-1,
+        )
+        lgbm = LGBMClassifier(
+            class_weight="balanced",
+            random_state=42,
+            device="gpu",  # GPU 사용
+            verbose=-1,
+        )
+    else:
+        xgb = XGBClassifier(eval_metric="logloss", random_state=42, n_jobs=-1)
+        lgbm = LGBMClassifier(
+            class_weight="balanced", random_state=42, n_jobs=-1, verbose=-1
+        )
 
     # 3. 나머지는 조기 종료 미지원 (기존 그대로 유지)
     rf = RandomForestClassifier(
         n_estimators=100, class_weight="balanced", random_state=42, n_jobs=-1
     )
-    dt = DecisionTreeClassifier(class_weight="balanced", random_state=42)
+    dt = DecisionTreeClassifier(class_weight="balanced", random_state=42, max_depth=10)
     svc = SVC(probability=True, class_weight="balanced", random_state=42)
+
+    # 4. 앙상블 모델 (Voting, Stacking)
+    # Voting: 여러 모델의 예측을 투표로 결합
+    voting = VotingClassifier(
+        estimators=[
+            ("lr", lr),
+            ("dt", dt),
+            (
+                "rf",
+                RandomForestClassifier(
+                    n_estimators=30, class_weight="balanced", random_state=42, n_jobs=-1
+                ),
+            ),
+        ],
+        voting="soft",  # 확률 기반 투표
+        n_jobs=-1,
+    )
+
+    # Stacking: 베이스 모델 위에 메타 학습자 추가
+    stacking = StackingClassifier(
+        estimators=[
+            ("lr", lr),
+            ("dt", dt),
+            (
+                "rf",
+                RandomForestClassifier(
+                    n_estimators=30, class_weight="balanced", random_state=42, n_jobs=-1
+                ),
+            ),
+        ],
+        final_estimator=LogisticRegression(class_weight="balanced", random_state=42),
+        cv=3,  # 3-fold 교차검증
+        n_jobs=-1,
+    )
 
     return {
         "Logistic": lr,
@@ -306,6 +381,8 @@ def get_model_dictionary():
         "XGBoost": xgb,
         "LightGBM": lgbm,
         "SVM": svc,
+        "Voting": voting,
+        "Stacking": stacking,
     }
 
 
@@ -342,18 +419,16 @@ def train_model(X_train, y_train, ml_model=None):
             model.scaler = scaler  # 추론 시 사용하기 위해 모델에 scaler 저장
             model.fit(X_train_scaled, y_train)
         # 조기 종료를 위한 내부 검증 데이터 분리 (10%)
-        # Boosting 계열(XGB, LightGBM)만 사용
-        elif model_name in ["XGBClassifier", "LGBMClassifier"]:
-            X_t, X_v, y_t, y_v = train_test_split(
-                X_train, y_train, test_size=0.1, random_state=42, stratify=y_train
-            )
-            model.fit(
-                X_t,
-                y_t,
-                eval_set=[(X_v, y_v)],
-                early_stopping_rounds=10,  # 10번 시도 후 개선 없으면 중단
-                verbose=False,
-            )
+        elif model_name == "XGBClassifier":
+            # 조기 종료는 버전별 API가 다른 문제가 있으므로 제외
+            model.fit(X_train, y_train)
+        elif model_name == "LGBMClassifier":
+            # 조기 종료는 버전별 API가 다른 문제가 있으므로 제외
+            model.fit(X_train, y_train)
+        elif model_name in ["VotingClassifier", "StackingClassifier"]:
+            # 앙상블 모델은 내부적으로 여러 모델 학습
+            print(f"  → 베이스 모델들을 학습 중...")
+            model.fit(X_train, y_train)
         else:
             # RF/DT/SVM 등은 전체 데이터로 학습
             model.fit(X_train, y_train)
@@ -571,6 +646,7 @@ Sensitivity: {tp/(tp+fn):.4f}"""
         print(f"{threshold:>10.2f} {prec:>10.4f} {rec:>10.4f} {f1_custom:>10.4f}")
 
     # 성능 메트릭 반환
+    sensitivity = tp / (tp + fn) if (tp + fn) > 0 else 0
     return {
         "accuracy": accuracy,
         "f1_macro": f1_macro,
@@ -580,6 +656,7 @@ Sensitivity: {tp/(tp+fn):.4f}"""
         "mcc": mcc,
         "auc": roc_auc,
         "avg_precision": avg_precision,
+        "sensitivity": sensitivity,
     }
 
 
@@ -603,14 +680,12 @@ def main():
     # 경로 설정 (Colab 환경 고려)
     if is_colab():
         BASE_DIR = "/content"
-        PROCESSED_DATA_DIR = os.path.join(
-            BASE_DIR, "data/new_processed_data"
-        )  # new_processed_data 사용
+        PROCESSED_DATA_DIR = os.path.join(BASE_DIR, "data/processed_data")
         MODEL_OUTPUT_DIR = os.path.join(BASE_DIR, "models")
         FINETUNE_IDS_PATH = os.path.join(BASE_DIR, "data/finetune_used_ids.csv")
     else:
         BASE_DIR = "./data"
-        PROCESSED_DATA_DIR = "./data/new_processed_data"  # new_processed_data 사용
+        PROCESSED_DATA_DIR = "./data/processed_data"
         MODEL_OUTPUT_DIR = "./models"
         FINETUNE_IDS_PATH = os.path.join(BASE_DIR, "finetune_used_ids.csv")
 
@@ -635,12 +710,13 @@ def main():
     # ML 모델 딕셔너리 가져오기
     ml_models_dict = get_model_dictionary()
 
-    # 선택된 ML 모델만 필터링
-    selected_ml_models = {
-        name: model
-        for name, model in ml_models_dict.items()
-        if name in ML_MODELS_TO_USE
-    }
+    # 선택된 ML 모델만 필터링 (ML_MODELS_TO_USE 순서 유지)
+    selected_ml_models = {}
+    for name in ML_MODELS_TO_USE:
+        if name in ml_models_dict:
+            selected_ml_models[name] = ml_models_dict[name]
+        else:
+            print(f"⚠️  경고: '{name}' 모델을 찾을 수 없습니다. 건너뜁니다.")
 
     if not selected_ml_models:
         print("\n[경고] ML_MODELS_TO_USE가 비어있거나 유효하지 않은 모델명입니다.")
@@ -720,16 +796,56 @@ def main():
             joblib.dump(model, model_path)
             print(f"\n✓ 모델 저장 완료: {model_path}")
 
-    # 4. 성능 비교 표 출력
+            # ========== 누적 성능 비교 (모델 하나 끝날 때마다) ==========
+            print("\n" + "=" * 140)
+            print(f"누적 성능 비교 ({len(performance_results)}개 모델 완료)")
+            print("=" * 140)
+
+            # 헤더
+            header = f"{'Vector':<12} {'ML Model':<15} {'Accuracy':>9} {'F1 Macro':>9} {'F1 Neg':>9} {'F1 Pos':>9} {'AUC':>9} {'MCC':>9} {'Sens':>9} {'Train Time':>12}"
+            print(header)
+            print("-" * 140)
+
+            # MCC 기준으로 정렬
+            sorted_current = sorted(
+                performance_results, key=lambda x: x["mcc"], reverse=True
+            )
+
+            # 각 모델 결과
+            for result in sorted_current:
+                row = (
+                    f"{result['vector_name']:<12} "
+                    f"{result['ml_model_name']:<15} "
+                    f"{result['accuracy']:>9.4f} "
+                    f"{result['f1_macro']:>9.4f} "
+                    f"{result['f1_neg']:>9.4f} "
+                    f"{result['f1_pos']:>9.4f} "
+                    f"{result['auc']:>9.4f} "
+                    f"{result['mcc']:>9.4f} "
+                    f"{result['sensitivity']:>9.4f} "
+                    f"{result['train_time']:>11.1f}s"
+                )
+                print(row)
+
+            # 현재까지 최고 성능
+            if len(performance_results) > 0:
+                best_current = max(performance_results, key=lambda x: x["mcc"])
+                print("\n" + "-" * 140)
+                print(
+                    f"현재까지 최고 MCC: {best_current['combined_name']} (MCC={best_current['mcc']:.4f})"
+                )
+                print("=" * 140)
+
+    # 4. 최종 성능 비교 표 출력
     if performance_results:
-        print("\n" + "=" * 130)
-        print("모델 성능 비교 (벡터 타입 × ML 모델)")
-        print("=" * 130)
+        print("\n" + "=" * 140)
+        print("🏆 최종 모델 성능 비교 (전체 요약)")
+        print("=" * 140)
 
         # 헤더
-        header = f"{'Vector':<12} {'ML Model':<15} {'Accuracy':>9} {'F1 Macro':>9} {'F1 Neg':>9} {'F1 Pos':>9} {'AUC':>9} {'MCC':>9} {'Train Time':>12}"
+        header = f"{'Vector':<12} {'ML Model':<15} {'Accuracy':>9} {'F1 Macro':>9} {'F1 Neg':>9} {'F1 Pos':>9} {'AUC':>9} {'MCC':>9} {'Sens':>9} {'Train Time':>12}"
         print(header)
-        print("-" * 130)
+        print("-" * 140)
 
         # MCC 기준으로 정렬
         sorted_results = sorted(
@@ -747,6 +863,7 @@ def main():
                 f"{result['f1_pos']:>9.4f} "
                 f"{result['auc']:>9.4f} "
                 f"{result['mcc']:>9.4f} "
+                f"{result['sensitivity']:>9.4f} "
                 f"{result['train_time']:>11.1f}s"
             )
             print(row)
@@ -758,7 +875,7 @@ def main():
         best_auc = max(performance_results, key=lambda x: x["auc"])
         best_mcc = max(performance_results, key=lambda x: x["mcc"])
 
-        print("\n" + "-" * 130)
+        print("\n" + "-" * 140)
         print("최고 성능:")
         print(
             f"  - Accuracy:  {best_acc['combined_name']} ({best_acc['accuracy']:.4f})"
@@ -773,7 +890,7 @@ def main():
         print(
             f"  - MCC:       {best_mcc['combined_name']} ({best_mcc['mcc']:.4f}) ⭐ 추천"
         )
-        print("=" * 130)
+        print("=" * 140)
 
     print("\n" + "=" * 70)
     print("학습 완료!")

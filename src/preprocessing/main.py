@@ -485,6 +485,7 @@ def main():
             "price": product.get("price"),
             "delivery_type": product.get("delivery_type"),
             "product_url": product.get("product_url"),
+            "img_url": product.get("img_url"),
             # 전처리 추가 필드
             "skin_type": product.get("skin_type", "미분류"),
             "top_keywords": top_keywords,

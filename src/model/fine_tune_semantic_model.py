@@ -59,7 +59,7 @@ def get_env_config():
         if "A100" in gpu_name:
             return {
                 "device": "cuda",
-                "batch_size": 128,
+                "batch_size": 64,
                 "fp16": True,
             }  # A100은 대용량 배치 가능
         else:
